@@ -1,0 +1,38 @@
+{
+  "name": "host",
+  "version": "0.1.0",
+  "description": "Central message relay host for coding agents (opencode, claude code, aider, codex) \u2014 register, send, broadcast, read, and live-stream messages over HTTP/SSE. Zero runtime dependencies (Node 24 built-ins only).",
+  "keywords": ["host", "relay", "broker", "inter-agent", "coding-agent", "message-bus", "sse"],
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1000bath/host.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
+  "bin": {
+    "host": "./dist/cli.js"
+  },
+  "files": ["dist", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run src"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.0"
+  }
+}
