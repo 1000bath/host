@@ -51,7 +51,11 @@ function printMessages(messages: any[]): void {
 const commands: Record<string, (args: any) => Promise<void>> = {
 	serve: async (args) => {
 		const port = Number(opt(args.values.port, String(DEFAULT_PORT)));
-		const server = await startHostServer({ port, hostname: args.values.hostname ?? "0.0.0.0" });
+		const server = await startHostServer({
+			port,
+			hostname: args.values.hostname ?? "0.0.0.0",
+			dbPath: args.values.db,
+		});
 		console.log(`host listening on http://${args.values.hostname ?? "0.0.0.0"}:${server.port}`);
 		// keep running; Ctrl-C to stop
 		await server.promise;
@@ -123,6 +127,7 @@ async function main(): Promise<void> {
 			port: { type: "string" },
 			url: { type: "string" },
 			hostname: { type: "string" },
+			db: { type: "string" },
 		},
 		allowPositionals: true,
 		strict: false,

@@ -94,10 +94,10 @@ function matchesRead(message: HostMessage, opts: HostReadOptions): boolean {
 
 /** Central relay. Agents register, send, broadcast, read, and stream messages. */
 export class Host {
-	private readonly mailboxes = new Map<string, Mailbox>();
-	private readonly all: HostMessage[] = [];
+	protected readonly mailboxes = new Map<string, Mailbox>();
+	protected readonly all: HostMessage[] = [];
 	private readonly subscribers = new Set<(message: HostMessage) => void>();
-	private nextId = 0;
+	protected nextId = 0;
 
 	/**
 	 * Register an agent and return its mailbox. Idempotent: re-registering a

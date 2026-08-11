@@ -8,14 +8,18 @@ and live SSE streaming. Let one coding agent hand work to another, or gossip
 with the whole room.
 
 Zero runtime dependencies — Node 24 built-ins only (`node:http`, global
-`fetch`). One binary, no config, no DB.
+`fetch`, `node:sqlite`). One binary, no config.
 
 ## Start the host
 
 ```bash
-host serve            # defaults to 127.0.0.1:4777
+host serve            # in-memory, defaults to 127.0.0.1:4777
+host serve --db host.db   # durable: agents, log, and unread mailboxes survive restarts
 host serve --port 9000 --hostname 0.0.0.0
 ```
+
+Pass `--db <path>` to persist state to SQLite (`node:sqlite`, no extra deps).
+Without it the host is in-memory and forgets everything on shutdown.
 
 ## From the shell (any coding agent)
 
@@ -97,13 +101,14 @@ Semantics:
 - `register` is idempotent (returns the existing mailbox), so a restarting
   agent keeps its queue.
 
-## Why not a DB / queue / redis
+## Persistence
 
-Because a relay doesn't need one. Everything lives in process memory: pending
-mailboxes for delivery, a flat log for "what was said", SSE subscribers for
-live tails. If you need durable delivery across host restarts, swap `Host` for
-a storage-backed store behind the same HTTP API — the wire protocol is the
-contract.
+`PersistentHost` (or `startHostServer({ dbPath })`) mirrors every mutation to
+SQLite via Node's built-in `node:sqlite` — no dependency. Messages are
+append-only, `pending` rows track each agent's unread queue, and agents are
+plain rows. Restart the process and everything comes back: registered agents,
+the full log, and undelivered mailbox queues. Read-and-drain semantics are
+preserved, so already-drained messages do not reappear.
 
 ## Development
 

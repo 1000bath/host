@@ -5,11 +5,14 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Host, type HostMessage, type HostReadOptions, type HostSendInput } from "./host.js";
+import { PersistentHost } from "./persist.js";
 
 export interface HostServerOptions {
 	host?: Host;
 	port?: number;
 	hostname?: string;
+	/** SQLite file path for durable storage. Omit for in-memory. */
+	dbPath?: string;
 }
 
 export interface HostServer {
@@ -133,7 +136,7 @@ function stream(url: URL, req: IncomingMessage, res: ServerResponse, host: Host)
 }
 
 export async function startHostServer(options: HostServerOptions = {}): Promise<HostServer> {
-	const host = options.host ?? new Host();
+	const host = options.host ?? (options.dbPath ? new PersistentHost(options.dbPath) : new Host());
 	const port = options.port ?? 4777;
 	const hostname = options.hostname ?? "127.0.0.1";
 
