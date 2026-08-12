@@ -4,6 +4,7 @@
  * talk through a shared host from the shell:
  *
  *   host serve              start the relay (default port 4777)
+ *   host mcp [--name A]     expose the host as MCP tools over stdio (agent identity = A)
  *   host register --name A
  *   host send --from A --to B --content "..." [--topic t]
  *   host send --from A --to B --content-file brief.json   (or any file path)
@@ -18,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { HostClient } from "./client.js";
+import { runMcpServer } from "./mcp.js";
 import { startHostServer } from "./server.js";
 
 const DEFAULT_PORT = 4777;
@@ -71,6 +73,13 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 		console.log(`host listening on http://${args.values.hostname ?? "0.0.0.0"}:${server.port}`);
 		// keep running; Ctrl-C to stop
 		await server.promise;
+	},
+
+	mcp: async (args) => {
+		// The MCP server is one agent identity talking to a running host.
+		// register() happens lazily on first tool use via the client name.
+		const c = client(args);
+		await runMcpServer(c);
 	},
 
 	register: async (args) => {

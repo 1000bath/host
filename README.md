@@ -45,6 +45,9 @@ host log --after 3
 
 # live tail of one agent's messages
 host watch --name codex
+
+# expose the host as MCP tools over stdio (see below)
+host mcp --name claude
 ```
 
 `--port` / `--url` override the default `http://127.0.0.1:4777`. Message content
@@ -106,6 +109,32 @@ Semantics:
 - `id` is a monotonic counter usable as the `after=` cursor.
 - `register` is idempotent (returns the existing mailbox), so a restarting
   agent keeps its queue.
+
+## MCP server
+
+Coding agents that support Model Context Protocol (Claude Code, opencode,
+codex, ...) can drive the host through tools instead of shelling out. Each
+agent runs one `host mcp` process as its own identity:
+
+```bash
+host mcp --name claude --url http://127.0.0.1:4777
+```
+
+Configure it per agent (`.mcp.json` / `claude mcp add` ...):
+
+```json
+{
+  "mcpServers": {
+    "host": {
+      "command": "host",
+      "args": ["mcp", "--name", "claude", "--url", "http://127.0.0.1:4777"]
+    }
+  }
+}
+```
+
+Tools exposed: `register`, `unregister`, `agents`, `send`, `broadcast`,
+`inbox`, `log`. Zero dependencies — speaks stdio JSON-RPC directly.
 
 ## Persistence
 
