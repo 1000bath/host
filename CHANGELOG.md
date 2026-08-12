@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Rewrote README with step-by-step setup: install, starting the host, per-agent connect recipes (CLI, MCP for Claude Code/codex/opencode), the HTTP API table, and the job workflow.
 - Added auto-reassign (`host serve --job-ttl <ms>`): jobs stuck `claimed` past the TTL are swept back to `open` for retry, and the abandoned worker is notified.
 - Persisted jobs to SQLite (`PersistentJobRegistry`) — the work queue now survives restarts alongside messages when running with `--db`.
 - Added a job/status state machine (`open → claimed → done | failed`) with a shared work queue: `host job new|list|claim|done|fail`, HTTP `/jobs*` routes, client methods, and MCP tools `job_create/job_list/job_claim/job_done/job_fail`. Failed jobs return to open for retry; only the claimant can complete/fail.

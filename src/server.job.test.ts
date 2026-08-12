@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { HostClient } from "./client.js";
+import { JobRegistry } from "./job.js";
 import { startHostServer, type HostServer } from "./server.js";
 
 describe("host job API over HTTP", () => {
@@ -76,7 +77,9 @@ describe("host job API over HTTP", () => {
 	});
 
 	it("server with jobTtlMs reopens a stale claimed job for another worker", async () => {
-		const s = await startHostServer({ port: 0, jobTtlMs: 60_000 }); // TTL set, ticker slow
+		let now = Date.now();
+		const jobs = new JobRegistry({ claimTtl: 60_000, now: () => now });
+		const s = await startHostServer({ port: 0, jobTtlMs: 60_000, jobs });
 		servers.push(s);
 		server = s;
 		const url = `http://127.0.0.1:${server.port}`;
@@ -88,9 +91,8 @@ describe("host job API over HTTP", () => {
 		await codex.claimJob(job.id);
 		expect(server.jobs.list({ status: "claimed" })).toHaveLength(1);
 
-		// simulate the sweep finding it stale by nudging claimedAt back
-		const claimed = server.jobs.get(job.id)!;
-		(claimed as { claimedAt: number }).claimedAt = Date.now() - 120_000;
+		// fast-forward time to make the job stale (TTL is 60_000)
+		now += 120_000;
 
 		// manual sweep (what the ticker would call)
 		server.jobs.reopenStale();

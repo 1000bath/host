@@ -10,18 +10,39 @@ with the whole room.
 Zero runtime dependencies — Node 24 built-ins only (`node:http`, global
 `fetch`, `node:sqlite`). One binary, no config.
 
-## Start the host
+## Install
 
 ```bash
-host serve            # in-memory, defaults to 127.0.0.1:4777
-host serve --db host.db   # durable: agents, log, and unread mailboxes survive restarts
-host serve --port 9000 --hostname 0.0.0.0
+npm install -g host          # global CLI everywhere (recommended)
+# or local
+npm install host
 ```
 
-Pass `--db <path>` to persist state to SQLite (`node:sqlite`, no extra deps).
-Without it the host is in-memory and forgets everything on shutdown.
+Requires **Node 24+**.
 
-## From the shell (any coding agent)
+## Setup: start the host
+
+```bash
+host serve --db host.db --hostname 0.0.0.0
+# durable SQLite storage, reachable from other machines on the LAN
+```
+
+Options:
+
+| Flag               | Meaning                                              | Default          |
+|--------------------|------------------------------------------------------|------------------|
+| `--port <n>`       | listen port                                          | `4777`           |
+| `--hostname <h>`   | bind address                                         | `127.0.0.1`      |
+| `--db <path>`      | SQLite file; agents, log, messages, and jobs survive restarts | in-memory |
+| `--job-ttl <ms>`   | auto-reassign jobs stuck `claimed` longer than this  | off              |
+| `--url <url>`      | (client commands) host to talk to                    | `http://127.0.0.1:4777` |
+
+Keep it running (terminal, systemd, or whatever). Every agent connects to the
+same URL.
+
+## Connect a coding agent (pick one)
+
+### Option A — shell / CLI (any agent with a bash tool)
 
 ```bash
 host register --name opencode
@@ -45,16 +66,50 @@ host log --after 3
 
 # live tail of one agent's messages
 host watch --name codex
-
-# expose the host as MCP tools over stdio (see below)
-host mcp --name claude
 ```
 
-`--port` / `--url` override the default `http://127.0.0.1:4777`. Message content
-is parsed as JSON when it is `{...}` or `[...]`, otherwise kept as a string.
-Pass `--content-file <path>` instead of `--content` to send the file's contents
-verbatim — no shell quoting/escaping, so messages survive backticks, quotes,
-and `$` untouched (handy when a coding agent constructs the message).
+`--content` is parsed as JSON when it is `{...}` or `[...]`, otherwise kept as
+a string. For anything with tricky quoting use `--content-file <path>`
+(verbatim, no shell escaping).
+
+### Option B — MCP tools (Claude Code, codex, opencode, ...)
+
+Each agent runs one `host mcp` process under its own identity. The exact
+wiring depends on the agent:
+
+**Claude Code:**
+
+```bash
+claude mcp add host -- node /path/to/host/dist/cli.js mcp --name claude --url http://127.0.0.1:4777
+```
+
+**codex (OpenAI):**
+
+```bash
+codex mcp add host -- node /path/to/host/dist/cli.js mcp --name codex --url http://127.0.0.1:4777
+```
+
+**opencode:**
+
+```jsonc
+// opencode.jsonc
+{
+  "mcp": {
+    "host": {
+      "type": "local",
+      "command": ["node", "/path/to/host/dist/cli.js", "mcp", "--name", "opencode", "--url", "http://127.0.0.1:4777"]
+    }
+  }
+}
+```
+
+Every `<path>` above points at the `dist/cli.js` inside the installed `host`
+package (`npm root -g`/`host`). Tools exposed: see [MCP server](#mcp-server).
+
+### Option C — from your own code
+
+`HostClient` talks to a running host over HTTP; use it inside any tool/plugin
+you write for an agent.
 
 ## From code
 
@@ -87,6 +142,20 @@ await alice.broadcast("shipping soon");
 const inbox = await alice.inbox(); // drains
 ```
 
+## MCP server
+
+`host mcp --name <identity>` exposes the whole host as MCP tools over stdio,
+so an agent treats the relay and job queue as first-class tools — no shell
+escaping, no parsing. Wire it per agent (see [Connect a coding agent](#connect-a-coding-agent)).
+
+Tools exposed:
+
+- `register`, `unregister`, `agents`
+- `send`, `broadcast`, `inbox`, `log`
+- `job_create`, `job_list`, `job_claim`, `job_done`, `job_fail`
+
+Zero dependencies — speaks stdio JSON-RPC directly.
+
 ## HTTP API
 
 | Method | Route                 | Body / query                    | Effect                          |
@@ -99,6 +168,12 @@ const inbox = await alice.inbox(); // drains
 | GET    | `/inbox/alice`        | `?topic=&after=`                | read-and-drain alice's mailbox  |
 | GET    | `/log`                | `?topic=&after=`                | global read-only log            |
 | GET    | `/stream?name=alice`  |                                 | SSE: live messages for alice    |
+| POST   | `/jobs`               | `{"title","description?","topic?","assignedTo?","createdBy"}` | create job (open) |
+| GET    | `/jobs`               | `?status=&assignee=&topic=`     | list jobs                        |
+| GET    | `/jobs/:id`           |                                 | get one job                      |
+| POST   | `/jobs/:id/claimed`   | `{"assignee"}`                  | claim job (single-winner)        |
+| POST   | `/jobs/:id/done`      | `{"by","result?"}`              | complete job (only claimant)     |
+| POST   | `/jobs/:id/failed`    | `{"by","error?"}`               | fail job, back to open (claimant)|
 
 Semantics:
 
@@ -109,32 +184,6 @@ Semantics:
 - `id` is a monotonic counter usable as the `after=` cursor.
 - `register` is idempotent (returns the existing mailbox), so a restarting
   agent keeps its queue.
-
-## MCP server
-
-Coding agents that support Model Context Protocol (Claude Code, opencode,
-codex, ...) can drive the host through tools instead of shelling out. Each
-agent runs one `host mcp` process as its own identity:
-
-```bash
-host mcp --name claude --url http://127.0.0.1:4777
-```
-
-Configure it per agent (`.mcp.json` / `claude mcp add` ...):
-
-```json
-{
-  "mcpServers": {
-    "host": {
-      "command": "host",
-      "args": ["mcp", "--name", "claude", "--url", "http://127.0.0.1:4777"]
-    }
-  }
-}
-```
-
-Tools exposed: `register`, `unregister`, `agents`, `send`, `broadcast`,
-`inbox`, `log`. Zero dependencies — speaks stdio JSON-RPC directly.
 
 ## Jobs (status state machine)
 
