@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PersistentHost } from "./persist.js";
+import { PersistentHost, PersistentJobRegistry, SqliteStore } from "./persist.js";
 
 describe("PersistentHost", () => {
 	let dir: string;
@@ -85,5 +85,46 @@ describe("PersistentHost", () => {
 		const host2 = new PersistentHost(dbPath);
 		expect(host2.read("bob")).toHaveLength(0);
 		host2.close();
+	});
+
+	it("persists jobs across restart via PersistentJobRegistry", () => {
+		const store = new SqliteStore(dbPath);
+		const reg1 = new PersistentJobRegistry(store);
+		const job = reg1.create({ title: "PKCE", topic: "auth" }, "clew");
+		reg1.claim(job.id, "codex");
+		reg1.done(job.id, "codex", { ok: true });
+		store.close();
+
+		const store2 = new SqliteStore(dbPath);
+		const reg2 = new PersistentJobRegistry(store2);
+		const loaded = reg2.get(job.id);
+		expect(loaded?.status).toBe("done");
+		expect(loaded?.assignee).toBe("codex");
+		expect(loaded?.result).toEqual({ ok: true });
+		store2.close();
+	});
+
+	it("persists failed jobs as open for retry after restart", () => {
+		const store = new SqliteStore(dbPath);
+		const reg1 = new PersistentJobRegistry(store);
+		const job = reg1.create({ title: "flaky" }, "clew");
+		reg1.claim(job.id, "codex");
+		reg1.fail(job.id, "codex", "crash");
+		store.close();
+
+		const store2 = new SqliteStore(dbPath);
+		const reg2 = new PersistentJobRegistry(store2);
+		const loaded = reg2.get(job.id);
+		expect(loaded?.status).toBe("open");
+		expect(loaded?.assignee).toBeUndefined();
+		expect(loaded?.error).toBe("crash");
+		store2.close();
+	});
+
+	it("PersistentHost.jobs shares the same db file", () => {
+		const host = new PersistentHost(dbPath);
+		const job = host.jobs.create({ title: "via host" }, "clew");
+		expect(host.jobs.get(job.id)).toBeDefined();
+		host.close();
 	});
 });

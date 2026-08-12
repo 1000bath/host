@@ -9,6 +9,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { Host, type HostMessage, type HostReadOptions, type HostSendInput, Mailbox } from "./host.js";
+import { JobRegistry, type Job } from "./job.js";
 
 interface MessageRow {
 	id: number;
@@ -59,7 +60,82 @@ export class SqliteStore {
 				PRIMARY KEY (name, message_id),
 				FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 			);
+			CREATE TABLE IF NOT EXISTS jobs (
+				id INTEGER PRIMARY KEY,
+				title TEXT NOT NULL,
+				description TEXT,
+				topic TEXT,
+				status TEXT NOT NULL,
+				assignee TEXT,
+				created_by TEXT NOT NULL,
+				created_at INTEGER NOT NULL,
+				claimed_at INTEGER,
+				completed_at INTEGER,
+				result TEXT,
+				error TEXT
+			);
 		`);
+	}
+
+	// ---- jobs ----
+
+	saveJob(job: Job): void {
+		this.db
+			.prepare(
+				`INSERT INTO jobs (id, title, description, topic, status, assignee, created_by,
+				 created_at, claimed_at, completed_at, result, error)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 ON CONFLICT(id) DO UPDATE SET
+					title = excluded.title, description = excluded.description, topic = excluded.topic,
+					status = excluded.status, assignee = excluded.assignee, created_by = excluded.created_by,
+					created_at = excluded.created_at, claimed_at = excluded.claimed_at,
+					completed_at = excluded.completed_at, result = excluded.result, error = excluded.error`,
+			)
+			.run(
+				Number(job.id),
+				job.title,
+				job.description ?? null,
+				job.topic ?? null,
+				job.status,
+				job.assignee ?? null,
+				job.createdBy,
+				job.createdAt,
+				job.claimedAt ?? null,
+				job.completedAt ?? null,
+				job.result === undefined ? null : JSON.stringify(job.result),
+				job.error ?? null,
+			);
+	}
+
+	loadJobs(): Job[] {
+		const rows = this.db.prepare("SELECT * FROM jobs ORDER BY id ASC").all() as unknown as Array<{
+			id: number;
+			title: string;
+			description: string | null;
+			topic: string | null;
+			status: string;
+			assignee: string | null;
+			created_by: string;
+			created_at: number;
+			claimed_at: number | null;
+			completed_at: number | null;
+			result: string | null;
+			error: string | null;
+		}>;
+		return rows.map((row) => ({
+			id: String(row.id),
+			title: row.title,
+			...(row.description !== null ? { description: row.description } : {}),
+			...(row.topic !== null ? { topic: row.topic } : {}),
+			status: row.status as Job["status"],
+			...(row.assignee !== null ? { assignee: row.assignee } : {}),
+			createdBy: row.created_by,
+			createdAt: row.created_at,
+			...(row.claimed_at !== null ? { claimedAt: row.claimed_at } : {}),
+			...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+			...(row.result !== null ? { result: JSON.parse(row.result) } : {}),
+			...(row.error !== null ? { error: row.error } : {}),
+		}));
 	}
 
 	close(): void {
@@ -152,13 +228,47 @@ export class SqliteStore {
  * mutation, and reloads it on construction — so restarting the process keeps
  * agents, the message log, and undelivered mailbox queues.
  */
+/** JobRegistry mirrored to SQLite — jobs survive restarts alongside messages. */
+export class PersistentJobRegistry extends JobRegistry {
+	constructor(private readonly store: SqliteStore) {
+		super();
+		for (const job of store.loadJobs()) this.seed(job);
+	}
+
+	override create(input: Parameters<JobRegistry["create"]>[0], createdBy: string): Job {
+		const job = super.create(input, createdBy);
+		this.store.saveJob(job);
+		return job;
+	}
+
+	override claim(id: string, assignee: string): Job {
+		const job = super.claim(id, assignee);
+		this.store.saveJob(job);
+		return job;
+	}
+
+	override done(id: string, by: string, result?: unknown): Job {
+		const job = super.done(id, by, result);
+		this.store.saveJob(job);
+		return job;
+	}
+
+	override fail(id: string, by: string, error?: string): Job {
+		const job = super.fail(id, by, error);
+		this.store.saveJob(job);
+		return job;
+	}
+}
+
 export class PersistentHost extends Host {
 	private readonly store: SqliteStore;
+	readonly jobs: PersistentJobRegistry;
 
 	constructor(dbPath: string) {
 		super();
 		this.store = new SqliteStore(dbPath);
 		this.load();
+		this.jobs = new PersistentJobRegistry(this.store);
 	}
 
 	private load(): void {

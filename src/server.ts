@@ -10,6 +10,8 @@ import { PersistentHost } from "./persist.js";
 
 export interface HostServerOptions {
 	host?: Host;
+	/** Job registry; defaults to a fresh in-memory one (or the host's persistent registry). */
+	jobs?: JobRegistry;
 	port?: number;
 	hostname?: string;
 	/** SQLite file path for durable storage. Omit for in-memory. */
@@ -204,7 +206,9 @@ function stream(url: URL, req: IncomingMessage, res: ServerResponse, host: Host)
 
 export async function startHostServer(options: HostServerOptions = {}): Promise<HostServer> {
 	const host = options.host ?? (options.dbPath ? new PersistentHost(options.dbPath) : new Host());
-	const jobs = new JobRegistry();
+	const jobs =
+		options.jobs ??
+		(host instanceof PersistentHost ? host.jobs : new JobRegistry());
 	const port = options.port ?? 4777;
 	const hostname = options.hostname ?? "127.0.0.1";
 

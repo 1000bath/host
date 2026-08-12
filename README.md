@@ -168,6 +168,10 @@ completeJob / failJob`. Via MCP: `job_create`, `job_list`, `job_claim`,
 `job_done`, `job_fail`. HTTP: `POST /jobs`, `GET /jobs`, `GET /jobs/:id`,
 `POST /jobs/:id/claimed|done|failed`.
 
+With `--db host.db`, jobs persist to SQLite like messages: create/claim/
+done/fail survive restarts, so a restarted dispatcher or worker keeps the
+queue exactly where it left off.
+
 ## Persistence
 
 `PersistentHost` (or `startHostServer({ dbPath })`) mirrors every mutation to

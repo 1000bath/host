@@ -54,8 +54,8 @@ function assertTransition(from: JobStatus, to: JobStatus): void {
 
 /** In-memory job registry. Swap for a durable store behind the same API later. */
 export class JobRegistry {
-	private readonly jobs = new Map<string, Job>();
-	private nextId = 0;
+	protected readonly jobs = new Map<string, Job>();
+	protected nextId = 0;
 
 	/** Create a job in the `open` state. */
 	create(input: JobCreateInput, createdBy: string): Job {
@@ -127,6 +127,13 @@ export class JobRegistry {
 				(opts.assignee === undefined || job.assignee === opts.assignee) &&
 				(opts.topic === undefined || job.topic === opts.topic),
 		);
+	}
+
+	/** @internal Load a pre-existing job into memory (used by persistent hosts). */
+	protected seed(job: Job): void {
+		this.jobs.set(job.id, job);
+		const n = Number(job.id);
+		if (n > this.nextId) this.nextId = n;
 	}
 
 	private require(id: string): Job {
