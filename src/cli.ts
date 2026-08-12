@@ -13,6 +13,13 @@
  *   host log [--after id]
  *   host watch --name A     live messages for A
  *   host agents
+ *
+ * Job workflow (status state machine):
+ *   host job new --title "PKCE" --desc ... [--topic auth] [--assignee codex]
+ *   host job list [--status open|claimed|done|failed] [--assignee A] [--topic t]
+ *   host job claim --id 1 --name codex
+ *   host job done --id 1 --name codex [--result "..."]
+ *   host job fail --id 1 --name codex [--error "..."]
  */
 
 import { readFile } from "node:fs/promises";
@@ -134,6 +141,53 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 		// wait indefinitely
 		await new Promise(() => {});
 	},
+
+	job: async (args) => {
+		const sub = (args.positionals[1] as string) ?? "help";
+		const c = client(args);
+		switch (sub) {
+			case "new": {
+				const job = await c.createJob({
+					title: opt(args.values.title, ""),
+					...(args.values.desc !== undefined ? { description: args.values.desc } : {}),
+					...(args.values.topic !== undefined ? { topic: args.values.topic } : {}),
+					...(args.values.assignee !== undefined ? { assignedTo: args.values.assignee } : {}),
+				});
+				console.log(JSON.stringify(job));
+				return;
+			}
+			case "list": {
+				const jobs = await c.listJobs({
+					...(args.values.status !== undefined ? { status: args.values.status } : {}),
+					...(args.values.assignee !== undefined ? { assignee: args.values.assignee } : {}),
+					...(args.values.topic !== undefined ? { topic: args.values.topic } : {}),
+				});
+				for (const job of jobs) console.log(JSON.stringify(job));
+				return;
+			}
+			case "claim": {
+				const job = await c.claimJob(opt(args.values.id, ""));
+				console.log(JSON.stringify(job));
+				return;
+			}
+			case "done": {
+				const job = await c.completeJob(
+					opt(args.values.id, ""),
+					args.values.result !== undefined ? contentOf(args.values.result) : undefined,
+				);
+				console.log(JSON.stringify(job));
+				return;
+			}
+			case "fail": {
+				const job = await c.failJob(opt(args.values.id, ""), args.values.error);
+				console.log(JSON.stringify(job));
+				return;
+			}
+			default:
+				console.error("usage: host job <new|list|claim|done|fail>");
+				process.exit(1);
+		}
+	},
 };
 
 async function main(): Promise<void> {
@@ -150,6 +204,13 @@ async function main(): Promise<void> {
 			hostname: { type: "string" },
 			db: { type: "string" },
 			"content-file": { type: "string" },
+			title: { type: "string" },
+			desc: { type: "string" },
+			assignee: { type: "string" },
+			id: { type: "string" },
+			result: { type: "string" },
+			error: { type: "string" },
+			status: { type: "string" },
 		},
 		allowPositionals: true,
 		strict: false,
@@ -158,7 +219,7 @@ async function main(): Promise<void> {
 	const command = positionals[0] ?? "help";
 	const run = commands[command];
 	if (!run) {
-		console.error("usage: host <serve|register|unregister|agents|send|broadcast|inbox|log|watch>");
+		console.error("usage: host <serve|mcp|register|unregister|agents|send|broadcast|inbox|log|watch|job>");
 		process.exit(1);
 	}
 	try {

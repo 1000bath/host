@@ -5,6 +5,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Host, type HostMessage, type HostReadOptions, type HostSendInput } from "./host.js";
+import { JobRegistry, type JobStatus } from "./job.js";
 import { PersistentHost } from "./persist.js";
 
 export interface HostServerOptions {
@@ -17,6 +18,7 @@ export interface HostServerOptions {
 
 export interface HostServer {
 	host: Host;
+	jobs: JobRegistry;
 	port: number;
 	promise: Promise<void>;
 	close(): Promise<void>;
@@ -48,7 +50,15 @@ function isForAgent(message: HostMessage, name: string): boolean {
 	return message.to === name || (message.to === undefined && message.from !== name);
 }
 
-function handle(req: IncomingMessage, res: ServerResponse, host: Host): void {
+function readJobQuery(url: URL) {
+	return {
+		status: (url.searchParams.get("status") as JobStatus | null) ?? undefined,
+		assignee: url.searchParams.get("assignee") ?? undefined,
+		topic: url.searchParams.get("topic") ?? undefined,
+	};
+}
+
+function handle(req: IncomingMessage, res: ServerResponse, host: Host, jobs: JobRegistry): void {
 	void (async () => {
 		const url = new URL(req.url ?? "/", "http://localhost");
 		const path = url.pathname;
@@ -98,6 +108,63 @@ function handle(req: IncomingMessage, res: ServerResponse, host: Host): void {
 				return;
 			}
 
+			// ---- jobs (status state machine) ----
+			if (req.method === "POST" && path === "/jobs") {
+				const body = (await readJson(req)) as {
+					title?: string;
+					description?: string;
+					topic?: string;
+					assignedTo?: string;
+					createdBy?: string;
+				};
+				if (!body?.title) throw new Error("jobs: title required");
+				json(res, 200, jobs.create({
+					title: body.title,
+					...(body.description !== undefined ? { description: body.description } : {}),
+					...(body.topic !== undefined ? { topic: body.topic } : {}),
+					...(body.assignedTo !== undefined ? { assignedTo: body.assignedTo } : {}),
+				}, body.createdBy ?? "unknown"));
+				return;
+			}
+
+			if (req.method === "GET" && path === "/jobs") {
+				json(res, 200, { jobs: jobs.list(readJobQuery(url)) });
+				return;
+			}
+
+			const jobMatch = path.match(/^\/jobs\/(\d+)(?:\/(claimed|done|failed))?$/);
+			if (jobMatch) {
+				const id = jobMatch[1];
+				const action = jobMatch[2];
+				if (!action) {
+					json(res, 200, jobs.get(id) ?? { error: "not found" });
+					return;
+				}
+				const body = (await readJson(req)) as {
+					by?: string;
+					assignee?: string;
+					result?: unknown;
+					error?: string;
+				};
+				switch (action) {
+					case "claimed": {
+						if (!body?.assignee) throw new Error("jobs: assignee required");
+						json(res, 200, jobs.claim(id, body.assignee));
+						return;
+					}
+					case "done": {
+						if (!body?.by) throw new Error("jobs: by required");
+						json(res, 200, jobs.done(id, body.by, body.result));
+						return;
+					}
+					case "failed": {
+						if (!body?.by) throw new Error("jobs: by required");
+						json(res, 200, jobs.fail(id, body.by, body.error));
+						return;
+					}
+				}
+			}
+
 			if (req.method === "GET" && path === "/stream") {
 				return stream(url, req, res, host);
 			}
@@ -137,10 +204,11 @@ function stream(url: URL, req: IncomingMessage, res: ServerResponse, host: Host)
 
 export async function startHostServer(options: HostServerOptions = {}): Promise<HostServer> {
 	const host = options.host ?? (options.dbPath ? new PersistentHost(options.dbPath) : new Host());
+	const jobs = new JobRegistry();
 	const port = options.port ?? 4777;
 	const hostname = options.hostname ?? "127.0.0.1";
 
-	const server = createServer((req, res) => handle(req, res, host));
+	const server = createServer((req, res) => handle(req, res, host, jobs));
 
 	await new Promise<void>((resolve, reject) => {
 		server.once("error", reject);
@@ -154,6 +222,7 @@ export async function startHostServer(options: HostServerOptions = {}): Promise<
 
 	return {
 		host,
+		jobs,
 		port: actualPort,
 		promise: new Promise<void>((resolve) => server.on("close", resolve)),
 		close: () => new Promise<void>((resolve) => server.close(() => resolve())),

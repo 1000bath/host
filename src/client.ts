@@ -6,6 +6,7 @@
  */
 
 import type { HostMessage, HostReadOptions, HostSendOptions } from "./host.js";
+import type { Job, JobStatus } from "./job.js";
 
 export interface HostClientOptions {
 	baseUrl?: string;
@@ -63,6 +64,41 @@ export class HostClient {
 		return this.get("/log", opts).then((body) => body.messages as HostMessage[]);
 	}
 
+	// ---- jobs (status state machine) ----
+
+	createJob(input: {
+		title: string;
+		description?: string;
+		topic?: string;
+		assignedTo?: string;
+	}): Promise<Job> {
+		return this.post("/jobs", { ...input, createdBy: this.name });
+	}
+
+	/** List jobs, optionally filtered by status / assignee / topic. */
+	listJobs(opts?: { status?: JobStatus; assignee?: string; topic?: string }): Promise<Job[]> {
+		return this.get("/jobs", opts).then((body) => body.jobs as Job[]);
+	}
+
+	getJob(id: string): Promise<Job> {
+		return this.get(`/jobs/${id}`);
+	}
+
+	/** Claim an open job for this agent. Single-winner. */
+	claimJob(id: string): Promise<Job> {
+		return this.post(`/jobs/${id}/claimed`, { assignee: this.name });
+	}
+
+	/** Mark a claimed job done with an optional result. Only the claimant. */
+	completeJob(id: string, result?: unknown): Promise<Job> {
+		return this.post(`/jobs/${id}/done`, { by: this.name, ...(result !== undefined ? { result } : {}) });
+	}
+
+	/** Mark a claimed job failed (returns it to open for retry). Only the claimant. */
+	failJob(id: string, error?: string): Promise<Job> {
+		return this.post(`/jobs/${id}/failed`, { by: this.name, ...(error !== undefined ? { error } : {}) });
+	}
+
 	/**
 	 * Subscribe to messages for one agent over SSE. Returns an unsubscribe fn.
 	 * Messages already queued are not replayed — call inbox() to drain first.
@@ -105,10 +141,15 @@ export class HostClient {
 		};
 	}
 
-	private get<T = any>(path: string, query?: HostReadOptions): Promise<T> {
+	private get<T = any>(
+		path: string,
+		query?: { topic?: string; after?: string; status?: string; assignee?: string },
+	): Promise<T> {
 		const qs = new URLSearchParams();
 		if (query?.topic) qs.set("topic", query.topic);
 		if (query?.after) qs.set("after", query.after);
+		if (query?.status) qs.set("status", query.status);
+		if (query?.assignee) qs.set("assignee", query.assignee);
 		const full = `${this.baseUrl}${path}${qs.size > 0 ? `?${qs}` : ""}`;
 		return fetch(full).then(check).then((body) => body as T);
 	}

@@ -91,6 +91,59 @@ const TOOLS: McpTool[] = [
 			},
 		},
 	},
+	{
+		name: "job_create",
+		description: "Create a new job for the shared work queue (status: open).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				title: { type: "string", description: "Job title" },
+				description: { type: "string" },
+				topic: { type: "string" },
+				assignedTo: { type: "string", description: "Optional reserved assignee" },
+			},
+			required: ["title"],
+		},
+	},
+	{
+		name: "job_list",
+		description: "List jobs in the shared work queue, optionally filtered.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				status: { type: "string", description: "open|claimed|done|failed" },
+				assignee: { type: "string" },
+				topic: { type: "string" },
+			},
+		},
+	},
+	{
+		name: "job_claim",
+		description: "Claim an open job for this agent. Single-winner.",
+		inputSchema: {
+			type: "object",
+			properties: { id: { type: "string" } },
+			required: ["id"],
+		},
+	},
+	{
+		name: "job_done",
+		description: "Mark a claimed job done with an optional result. Only the claimant.",
+		inputSchema: {
+			type: "object",
+			properties: { id: { type: "string" }, result: { description: "Optional result payload" } },
+			required: ["id"],
+		},
+	},
+	{
+		name: "job_fail",
+		description: "Mark a claimed job failed (returns it to open for retry). Only the claimant.",
+		inputSchema: {
+			type: "object",
+			properties: { id: { type: "string" }, error: { type: "string" } },
+			required: ["id"],
+		},
+	},
 ];
 
 function response(id: number | string, result: unknown): JsonRpcMessage {
@@ -204,6 +257,34 @@ async function callTool(client: HostClient, name: string, args: Record<string, u
 			const opts: HostReadOptions = { topic: str("topic"), after: str("after") };
 			return { messages: await client.log(opts) };
 		}
+
+		case "job_create":
+			return client.createJob({
+				title: str("title") ?? "",
+				...(args.description !== undefined ? { description: String(args.description) } : {}),
+				...(args.topic !== undefined && typeof args.topic === "string" ? { topic: args.topic } : {}),
+				...(args.assignedTo !== undefined && typeof args.assignedTo === "string"
+					? { assignedTo: args.assignedTo }
+					: {}),
+			});
+
+		case "job_list":
+			return {
+				jobs: await client.listJobs({
+					...(typeof args.status === "string" ? { status: args.status as any } : {}),
+					...(typeof args.assignee === "string" ? { assignee: args.assignee } : {}),
+					...(typeof args.topic === "string" ? { topic: args.topic } : {}),
+				}),
+			};
+
+		case "job_claim":
+			return client.claimJob(str("id") ?? "");
+
+		case "job_done":
+			return client.completeJob(str("id") ?? "", args.result);
+
+		case "job_fail":
+			return client.failJob(str("id") ?? "", str("error"));
 
 		default:
 			throw new Error(`unknown tool: ${name}`);

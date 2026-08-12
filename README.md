@@ -136,6 +136,38 @@ Configure it per agent (`.mcp.json` / `claude mcp add` ...):
 Tools exposed: `register`, `unregister`, `agents`, `send`, `broadcast`,
 `inbox`, `log`. Zero dependencies — speaks stdio JSON-RPC directly.
 
+## Jobs (status state machine)
+
+`host serve` also manages a shared work queue with an explicit lifecycle the
+host enforces, instead of free-form messages:
+
+```
+open → claimed → done | failed
+```
+
+- `open`: dispatcher created it; not yet taken.
+- `claimed`: an agent accepted it (single-winner) and becomes its assignee.
+- `done`: claimant finished and can attach a `result`.
+- `failed`: claimant abandoned it (with an optional `error`); it returns to
+  `open` and any agent can claim it again for retry.
+
+Only the claimant may mark done/fail; a job reserved with `assignedTo` may
+only be claimed by that agent.
+
+```bash
+host job new --title "Implement PKCE" --desc "S256" --topic auth --assignee codex
+host job list                      # all jobs (JSON lines)
+host job list --status open        # only open ones
+host job claim --id 1 --name codex
+host job done --id 1 --name codex --result '{"outline":"..."}'   # only codex
+host job fail --id 1 --name codex --error "crash"                # back to open
+```
+
+Programmatically: `client.createJob / listJobs / getJob / claimJob /
+completeJob / failJob`. Via MCP: `job_create`, `job_list`, `job_claim`,
+`job_done`, `job_fail`. HTTP: `POST /jobs`, `GET /jobs`, `GET /jobs/:id`,
+`POST /jobs/:id/claimed|done|failed`.
+
 ## Persistence
 
 `PersistentHost` (or `startHostServer({ dbPath })`) mirrors every mutation to
