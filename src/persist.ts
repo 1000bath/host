@@ -10,6 +10,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Host, type Channel, type HostMessage, type HostReadOptions, type HostSendInput, Mailbox } from "./host.js";
 import { JobRegistry, type Job } from "./job.js";
+import { WorkflowRegistry } from "./workflow.js";
 
 interface MessageRow {
 	id: number;
@@ -255,8 +256,12 @@ export class SqliteStore {
  * mutation, and reloads it on construction — so restarting the process keeps
  * agents, the message log, and undelivered mailbox queues.
  */
-/** JobRegistry mirrored to SQLite — jobs survive restarts alongside messages. */
-export class PersistentJobRegistry extends JobRegistry {
+/**
+ * JobRegistry (workflow-capable) mirrored to SQLite — jobs survive restarts
+ * alongside messages. Workflows themselves are in-memory; their released step
+ * jobs persist through the standard job overrides below.
+ */
+export class PersistentJobRegistry extends WorkflowRegistry {
 	constructor(private readonly store: SqliteStore) {
 		super();
 		for (const job of store.loadJobs()) this.seed(job);

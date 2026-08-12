@@ -154,6 +154,7 @@ Tools exposed:
 - `send`, `broadcast`, `inbox`, `log`
 - `channel_new`, `channel_list`, `channel_add`, `channel_remove`
 - `job_create`, `job_list`, `job_claim`, `job_done`, `job_fail`
+- `workflow_create`, `workflow_list`, `workflow_get`
 
 Zero dependencies — speaks stdio JSON-RPC directly.
 
@@ -185,6 +186,27 @@ Semantics:
 - `id` is a monotonic counter usable as the `after=` cursor.
 - `register` is idempotent (returns the existing mailbox), so a restarting
   agent keeps its queue.
+
+## Workflows (orchestrated pipelines)
+
+A **workflow** is an ordered list of steps the host releases one at a time:
+step _N_ becomes an open job only after step _N−1_ is done. Agents work the
+pipeline in order, and completing a step automatically releases the next.
+
+```bash
+host workflow new --title "Ship PKCE" --steps "Implement|Test|Deploy"
+host workflow list
+host workflow get --id 1
+```
+
+Only step 1 is open at creation; when its job is claimed + done, step 2's job
+auto-appears, and so on. Each step can reserve an assignee (`assignedTo`), so
+different agents hand work to each other in sequence.
+
+Programmatically: `client.createWorkflow / listWorkflows / getWorkflow`.
+Via MCP: `workflow_create`, `workflow_list`, `workflow_get`. HTTP:
+`POST /workflows`, `GET /workflows`, `GET /workflows/:id`. Workflow steps are
+plain jobs, so TTL auto-reassign and channels apply to them too.
 
 ## Channels (topic isolation)
 

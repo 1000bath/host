@@ -8,3 +8,4 @@ export * from "./server.js";
 export * from "./client.js";
 export * from "./persist.js";
 export * from "./mcp.js";
+export * from "./workflow.js";

@@ -7,11 +7,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Host, type Channel, type HostMessage, type HostReadOptions, type HostSendInput } from "./host.js";
 import { JobRegistry, type JobStatus } from "./job.js";
 import { PersistentHost } from "./persist.js";
+import { WorkflowRegistry } from "./workflow.js";
 
 export interface HostServerOptions {
 	host?: Host;
-	/** Job registry; defaults to a fresh in-memory one (or the host's persistent registry). */
-	jobs?: JobRegistry;
+	/** Job registry; defaults to a fresh in-memory workflow-capable registry. */
+	jobs?: WorkflowRegistry;
 	port?: number;
 	hostname?: string;
 	/** SQLite file path for durable storage. Omit for in-memory. */
@@ -25,7 +26,7 @@ export interface HostServerOptions {
 
 export interface HostServer {
 	host: Host;
-	jobs: JobRegistry;
+	jobs: WorkflowRegistry;
 	port: number;
 	promise: Promise<void>;
 	close(): Promise<void>;
@@ -162,6 +163,34 @@ function handle(req: IncomingMessage, res: ServerResponse, host: Host, jobs: Job
 				return;
 			}
 
+			// ---- workflows (orchestrated pipelines) ----
+			if (req.method === "POST" && path === "/workflows") {
+				const body = (await readJson(req)) as {
+					title?: string;
+					steps?: Array<{ title: string; description?: string; topic?: string; assignedTo?: string }>;
+					createdBy?: string;
+				};
+				if (!body?.title || !Array.isArray(body.steps) || body.steps.length === 0) {
+					throw new Error("workflows: title and steps[] required");
+				}
+				json(res, 200, (jobs as WorkflowRegistry).createWorkflow({
+					title: body.title,
+					steps: body.steps,
+				}, body.createdBy ?? "unknown"));
+				return;
+			}
+
+			if (req.method === "GET" && path === "/workflows") {
+				json(res, 200, { workflows: (jobs as WorkflowRegistry).listWorkflows() });
+				return;
+			}
+
+			const wfMatch = path.match(/^\/workflows\/(\d+)$/);
+			if (wfMatch && req.method === "GET") {
+				json(res, 200, (jobs as WorkflowRegistry).getWorkflow(wfMatch[1]) ?? { error: "not found" });
+				return;
+			}
+
 			// ---- jobs (status state machine) ----
 			if (req.method === "POST" && path === "/jobs") {
 				const body = (await readJson(req)) as {
@@ -260,7 +289,9 @@ export async function startHostServer(options: HostServerOptions = {}): Promise<
 	const host = options.host ?? (options.dbPath ? new PersistentHost(options.dbPath, options) : new Host());
 	const jobs =
 		options.jobs ??
-		(host instanceof PersistentHost ? host.jobs : new JobRegistry({ claimTtl: options.jobTtlMs }));
+		(host instanceof PersistentHost
+			? host.jobs
+			: new WorkflowRegistry({ claimTtl: options.jobTtlMs }));
 	const port = options.port ?? 4777;
 	const hostname = options.hostname ?? "127.0.0.1";
 

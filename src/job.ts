@@ -67,7 +67,7 @@ export class JobRegistry {
 	 * released for another worker (see `reopenStale()`). `0`/`undefined` disables.
 	 */
 	claimTtl?: number;
-	private readonly now: () => number;
+	protected readonly now: () => number;
 
 	constructor(options: { claimTtl?: number; now?: () => number } = {}) {
 		this.claimTtl = options.claimTtl;

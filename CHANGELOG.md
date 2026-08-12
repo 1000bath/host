@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Added workflow orchestration: ordered pipelines that release one step at a time (`open→claimed→done`), auto-opening the next step when the previous completes. Available via `host workflow new|list|get` CLI, `/workflows` HTTP, client methods, and MCP tools `workflow_create/workflow_list/workflow_get`.
 - Persisted channels (owner + members) to SQLite and exposed them via MCP tools (`channel_new/channel_list/channel_add/channel_remove`) alongside the existing CLI/HTTP/client surfaces.
 - Added channel isolation: a managed topic is private to its members. Owners restrict send/broadcast/read to members, and `log --as <name>` hides channels the viewer can't access (`host channel new|add|remove|list`).
 - Rewrote README with step-by-step setup: install, starting the host, per-agent connect recipes (CLI, MCP for Claude Code/codex/opencode), the HTTP API table, and the job workflow.

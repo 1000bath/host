@@ -186,6 +186,35 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 		}
 	},
 
+	workflow: async (args) => {
+		const sub = (args.positionals[1] as string) ?? "help";
+		const c = client(args);
+		switch (sub) {
+			case "new": {
+				const steps = (opt(args.values.steps, ""))
+					.split("|")
+					.map((s) => s.trim())
+					.filter((s) => s.length > 0)
+					.map((title) => ({ title }));
+				if (steps.length === 0) throw new Error("workflow: --steps 'A|B|C' required");
+				const wf = await c.createWorkflow({ title: opt(args.values.title, "workflow"), steps });
+				console.log(JSON.stringify(wf));
+				return;
+			}
+			case "list": {
+				for (const wf of await c.listWorkflows()) console.log(JSON.stringify(wf));
+				return;
+			}
+			case "get": {
+				console.log(JSON.stringify(await c.getWorkflow(opt(args.values.id, ""))));
+				return;
+			}
+			default:
+				console.error("usage: host workflow <new|list|get>");
+				process.exit(1);
+		}
+	},
+
 	job: async (args) => {
 		const sub = (args.positionals[1] as string) ?? "help";
 		const c = client(args);
@@ -258,6 +287,7 @@ async function main(): Promise<void> {
 			"job-ttl": { type: "string" },
 			member: { type: "string" },
 			as: { type: "string" },
+			steps: { type: "string" },
 		},
 		allowPositionals: true,
 		strict: false,

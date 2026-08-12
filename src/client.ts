@@ -7,6 +7,7 @@
 
 import type { Channel, HostMessage, HostReadOptions, HostSendOptions } from "./host.js";
 import type { Job, JobStatus } from "./job.js";
+import type { Workflow, WorkflowStep } from "./workflow.js";
 
 export interface HostClientOptions {
 	baseUrl?: string;
@@ -126,6 +127,20 @@ export class HostClient {
 	/** Mark a claimed job failed (returns it to open for retry). Only the claimant. */
 	failJob(id: string, error?: string): Promise<Job> {
 		return this.post(`/jobs/${id}/failed`, { by: this.name, ...(error !== undefined ? { error } : {}) });
+	}
+
+	// ---- workflows (orchestrated pipelines) ----
+
+	createWorkflow(input: { title: string; steps: WorkflowStep[] }): Promise<Workflow> {
+		return this.post("/workflows", { ...input, createdBy: this.name });
+	}
+
+	listWorkflows(): Promise<Workflow[]> {
+		return this.get("/workflows").then((body) => body.workflows as Workflow[]);
+	}
+
+	getWorkflow(id: string): Promise<Workflow> {
+		return this.get(`/workflows/${id}`);
 	}
 
 	/**

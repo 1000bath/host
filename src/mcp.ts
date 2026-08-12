@@ -130,6 +130,45 @@ const TOOLS: McpTool[] = [
 		},
 	},
 	{
+		name: "workflow_create",
+		description: "Create an ordered workflow; step 1 is released as a job, later steps auto-release as prior ones complete.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				title: { type: "string" },
+				steps: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							title: { type: "string" },
+							description: { type: "string" },
+							topic: { type: "string" },
+							assignedTo: { type: "string" },
+						},
+						required: ["title"],
+					},
+					description: "Ordered step definitions",
+				},
+			},
+			required: ["title", "steps"],
+		},
+	},
+	{
+		name: "workflow_list",
+		description: "List all workflows.",
+		inputSchema: { type: "object", properties: {} },
+	},
+	{
+		name: "workflow_get",
+		description: "Get one workflow and its step progress.",
+		inputSchema: {
+			type: "object",
+			properties: { id: { type: "string" } },
+			required: ["id"],
+		},
+	},
+	{
 		name: "job_create",
 		description: "Create a new job for the shared work queue (status: open).",
 		inputSchema: {
@@ -307,6 +346,24 @@ async function callTool(client: HostClient, name: string, args: Record<string, u
 
 		case "channel_remove":
 			return client.removeChannelMember(str("topic") ?? "", str("member") ?? "");
+
+		case "workflow_create": {
+			const steps = Array.isArray(args.steps)
+				? (args.steps as Array<Record<string, unknown>>).map((s) => ({
+						title: String(s.title ?? ""),
+						...(s.description !== undefined ? { description: String(s.description) } : {}),
+						...(s.topic !== undefined && typeof s.topic === "string" ? { topic: s.topic } : {}),
+						...(s.assignedTo !== undefined && typeof s.assignedTo === "string" ? { assignedTo: s.assignedTo } : {}),
+					}))
+				: [];
+			return client.createWorkflow({ title: str("title") ?? "", steps });
+		}
+
+		case "workflow_list":
+			return { workflows: await client.listWorkflows() };
+
+		case "workflow_get":
+			return client.getWorkflow(str("id") ?? "");
 
 		case "job_create":
 			return client.createJob({
