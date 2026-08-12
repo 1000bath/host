@@ -127,4 +127,38 @@ describe("PersistentHost", () => {
 		expect(host.jobs.get(job.id)).toBeDefined();
 		host.close();
 	});
+
+	it("persists channels (owner + members) across restart", () => {
+		const host1 = new PersistentHost(dbPath);
+		host1.register("alice");
+		host1.register("bob");
+		host1.manageChannel("secret", "alice");
+		host1.addChannelMember("secret", "alice", "bob");
+		host1.close();
+
+		const host2 = new PersistentHost(dbPath);
+		const channel = host2.listChannels().find((c) => c.topic === "secret");
+		expect(channel?.owner).toBe("alice");
+		expect([...(channel?.members ?? [])].sort()).toEqual(["alice", "bob"]);
+
+		// isolation still enforced after reload
+		host2.register("carol");
+		expect(() => host2.send({ from: "carol", to: "alice", content: "x", topic: "secret" })).toThrow();
+		host2.close();
+	});
+
+	it("persists member removal across restart", () => {
+		const host1 = new PersistentHost(dbPath);
+		host1.register("alice");
+		host1.register("bob");
+		host1.manageChannel("team", "alice");
+		host1.addChannelMember("team", "alice", "bob");
+		host1.removeChannelMember("team", "alice", "bob");
+		host1.close();
+
+		const host2 = new PersistentHost(dbPath);
+		const channel = host2.listChannels().find((c) => c.topic === "team");
+		expect([...(channel?.members ?? [])]).toEqual(["alice"]);
+		host2.close();
+	});
 });

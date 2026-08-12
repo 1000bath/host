@@ -152,6 +152,7 @@ Tools exposed:
 
 - `register`, `unregister`, `agents`
 - `send`, `broadcast`, `inbox`, `log`
+- `channel_new`, `channel_list`, `channel_add`, `channel_remove`
 - `job_create`, `job_list`, `job_claim`, `job_done`, `job_fail`
 
 Zero dependencies — speaks stdio JSON-RPC directly.
@@ -208,9 +209,13 @@ Semantics:
   of (the admin/default view still sees everything).
 
 Programmatically: `client.manageChannel / addChannelMember /
-removeChannelMember / listChannels`. HTTP: `POST /channels`,
+removeChannelMember / listChannels`. Via MCP: `channel_new`, `channel_list`,
+`channel_add`, `channel_remove`. HTTP: `POST /channels`,
 `POST /channels/:topic/members/:member`, `DELETE /channels/:topic/members/:member?by=`,
 `GET /channels`, `GET /channels/:topic`.
+
+With `--db`, channels (owner + members) persist to SQLite like messages and
+jobs, so isolation survives restarts.
 
 ## Jobs (status state machine)
 

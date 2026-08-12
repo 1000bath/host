@@ -92,6 +92,44 @@ const TOOLS: McpTool[] = [
 		},
 	},
 	{
+		name: "channel_new",
+		description: "Restrict a topic into a channel owned by this agent. Only members can send/read on it.",
+		inputSchema: {
+			type: "object",
+			properties: { topic: { type: "string", description: "Topic to restrict" } },
+			required: ["topic"],
+		},
+	},
+	{
+		name: "channel_list",
+		description: "List all managed channels and their members.",
+		inputSchema: { type: "object", properties: {} },
+	},
+	{
+		name: "channel_add",
+		description: "Add an agent to a channel (only the channel owner may do this).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				topic: { type: "string" },
+				member: { type: "string", description: "Agent to add" },
+			},
+			required: ["topic", "member"],
+		},
+	},
+	{
+		name: "channel_remove",
+		description: "Remove an agent from a channel (only the channel owner may do this).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				topic: { type: "string" },
+				member: { type: "string", description: "Agent to remove" },
+			},
+			required: ["topic", "member"],
+		},
+	},
+	{
 		name: "job_create",
 		description: "Create a new job for the shared work queue (status: open).",
 		inputSchema: {
@@ -257,6 +295,18 @@ async function callTool(client: HostClient, name: string, args: Record<string, u
 			const opts: HostReadOptions = { topic: str("topic"), after: str("after") };
 			return { messages: await client.log(opts) };
 		}
+
+		case "channel_new":
+			return client.manageChannel(str("topic") ?? "");
+
+		case "channel_list":
+			return { channels: await client.listChannels() };
+
+		case "channel_add":
+			return client.addChannelMember(str("topic") ?? "", str("member") ?? "");
+
+		case "channel_remove":
+			return client.removeChannelMember(str("topic") ?? "", str("member") ?? "");
 
 		case "job_create":
 			return client.createJob({

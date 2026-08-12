@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Persisted channels (owner + members) to SQLite and exposed them via MCP tools (`channel_new/channel_list/channel_add/channel_remove`) alongside the existing CLI/HTTP/client surfaces.
 - Added channel isolation: a managed topic is private to its members. Owners restrict send/broadcast/read to members, and `log --as <name>` hides channels the viewer can't access (`host channel new|add|remove|list`).
 - Rewrote README with step-by-step setup: install, starting the host, per-agent connect recipes (CLI, MCP for Claude Code/codex/opencode), the HTTP API table, and the job workflow.
 - Added auto-reassign (`host serve --job-ttl <ms>`): jobs stuck `claimed` past the TTL are swept back to `open` for retry, and the abandoned worker is notified.

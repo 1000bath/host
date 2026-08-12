@@ -8,7 +8,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { Host, type HostMessage, type HostReadOptions, type HostSendInput, Mailbox } from "./host.js";
+import { Host, type Channel, type HostMessage, type HostReadOptions, type HostSendInput, Mailbox } from "./host.js";
 import { JobRegistry, type Job } from "./job.js";
 
 interface MessageRow {
@@ -74,7 +74,34 @@ export class SqliteStore {
 				result TEXT,
 				error TEXT
 			);
+			CREATE TABLE IF NOT EXISTS channels (
+				topic TEXT PRIMARY KEY,
+				owner TEXT NOT NULL,
+				members TEXT NOT NULL
+			);
 		`);
+	}
+
+	// ---- channels ----
+
+	/** Upsert a channel (owner + member list as a JSON array). */
+	saveChannel(channel: Channel): void {
+		this.db
+			.prepare("INSERT INTO channels (topic, owner, members) VALUES (?, ?, ?) ON CONFLICT(topic) DO UPDATE SET owner = excluded.owner, members = excluded.members")
+			.run(channel.topic, channel.owner, JSON.stringify([...channel.members]));
+	}
+
+	loadChannels(): Channel[] {
+		const rows = this.db.prepare("SELECT topic, owner, members FROM channels ORDER BY topic").all() as unknown as Array<{
+			topic: string;
+			owner: string;
+			members: string;
+		}>;
+		return rows.map((row) => ({
+			topic: row.topic,
+			owner: row.owner,
+			members: new Set(JSON.parse(row.members) as string[]),
+		}));
 	}
 
 	// ---- jobs ----
@@ -283,6 +310,9 @@ export class PersistentHost extends Host {
 			// populate mailboxes without touching disk
 			this.mailboxes.set(name, new Mailbox(this, name));
 		}
+		for (const channel of this.store.loadChannels()) {
+			this.channels.set(channel.topic, channel);
+		}
 		for (const message of this.store.messages()) {
 			this.all.push(message);
 		}
@@ -319,6 +349,24 @@ export class PersistentHost extends Host {
 		const drained = super.read(name, opts);
 		this.store.deletePending(name, drained.map((m) => Number(m.id)));
 		return drained;
+	}
+
+	override manageChannel(topic: string, owner: string): Channel {
+		const channel = super.manageChannel(topic, owner);
+		this.store.saveChannel(channel);
+		return channel;
+	}
+
+	override addChannelMember(topic: string, by: string, agent: string): Channel {
+		const channel = super.addChannelMember(topic, by, agent);
+		this.store.saveChannel(channel);
+		return channel;
+	}
+
+	override removeChannelMember(topic: string, by: string, agent: string): Channel {
+		const channel = super.removeChannelMember(topic, by, agent);
+		this.store.saveChannel(channel);
+		return channel;
 	}
 
 	close(): void {

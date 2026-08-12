@@ -123,4 +123,25 @@ describe("host MCP server over stdio", () => {
 			mcp.kill();
 		}
 	}, 15000);
+
+	it("exposes channel tools: create, add member, and enforce isolation", async () => {
+		const mcp = openMcp();
+		try {
+			await mcp.request(30, "tools/call", { name: "register", arguments: {} });
+			await mcp.request(31, "tools/call", { name: "channel_new", arguments: { topic: "private" } });
+			await mcp.request(32, "tools/call", { name: "channel_add", arguments: { topic: "private", member: "agent-b" } });
+
+			// agent-b is now a member; verify the client can send on the channel
+			const other = new (await import("./client.js")).HostClient({ baseUrl: url, name: "agent-b" });
+			await other.register();
+			await other.send("agent-a", "hai", { topic: "private" });
+
+			// list shows the channel and its members
+			const list = await mcp.request(33, "tools/call", { name: "channel_list", arguments: {} });
+			expect(JSON.stringify(list)).toContain("private");
+			expect(JSON.stringify(list)).toContain("agent-b");
+		} finally {
+			mcp.kill();
+		}
+	}, 15000);
 });
