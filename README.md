@@ -185,6 +185,33 @@ Semantics:
 - `register` is idempotent (returns the existing mailbox), so a restarting
   agent keeps its queue.
 
+## Channels (topic isolation)
+
+By default every topic is open to everyone. A **channel** is a topic that only
+its members may send to or read from — useful for scoping work to teams.
+
+```bash
+host channel new --topic secret --name alice     # alice owns the channel
+host send --from bob --to alice --content x --topic secret
+# → error: bob is not a member of channel "secret"
+host channel add --topic secret --member bob --name alice
+host send --from bob --to alice --content x --topic secret   # now OK
+host channel list
+```
+
+Semantics:
+
+- The creator is the owner; only the owner can add/remove members.
+- `send`/`broadcast` on a channel requires membership; non-members get a `400`.
+- `read` scoped to a channel requires membership.
+- `log --as <name>` filters out channel messages the named agent isn't a member
+  of (the admin/default view still sees everything).
+
+Programmatically: `client.manageChannel / addChannelMember /
+removeChannelMember / listChannels`. HTTP: `POST /channels`,
+`POST /channels/:topic/members/:member`, `DELETE /channels/:topic/members/:member?by=`,
+`GET /channels`, `GET /channels/:topic`.
+
 ## Jobs (status state machine)
 
 `host serve` also manages a shared work queue with an explicit lifecycle the

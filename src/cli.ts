@@ -14,6 +14,12 @@
  *   host watch --name A     live messages for A
  *   host agents
  *
+ * Channel isolation (topic permission):
+ *   host channel new --topic secret --name owner
+ *   host channel add --topic secret --member bob --name owner
+ *   host channel remove --topic secret --member bob --name owner
+ *   host channel list
+ *
  * Job workflow (status state machine):
  *   host job new --title "PKCE" --desc ... [--topic auth] [--assignee codex]
  *   host job list [--status open|claimed|done|failed] [--assignee A] [--topic t]
@@ -131,7 +137,13 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 
 	log: async (args) => {
 		const c = client(args);
-		printMessages(await c.log({ topic: args.values.topic, after: args.values.after }));
+		printMessages(
+			await c.log({
+				topic: args.values.topic,
+				after: args.values.after,
+				as: args.values.as,
+			}),
+		);
 	},
 
 	watch: async (args) => {
@@ -141,6 +153,37 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 		console.log(`watching ${name}`);
 		// wait indefinitely
 		await new Promise(() => {});
+	},
+
+	channel: async (args) => {
+		const sub = (args.positionals[1] as string) ?? "help";
+		const c = client(args);
+		switch (sub) {
+			case "new": {
+				const channel = await c.manageChannel(opt(args.values.topic, ""));
+				console.log(JSON.stringify({ topic: channel.topic, owner: channel.owner, members: [...channel.members] }));
+				return;
+			}
+			case "add": {
+				const channel = await c.addChannelMember(opt(args.values.topic, ""), opt(args.values.member, ""));
+				console.log(JSON.stringify({ topic: channel.topic, owner: channel.owner, members: [...channel.members] }));
+				return;
+			}
+			case "remove": {
+				const channel = await c.removeChannelMember(opt(args.values.topic, ""), opt(args.values.member, ""));
+				console.log(JSON.stringify({ topic: channel.topic, owner: channel.owner, members: [...channel.members] }));
+				return;
+			}
+			case "list": {
+				for (const ch of await c.listChannels()) {
+					console.log(JSON.stringify({ topic: ch.topic, owner: ch.owner, members: [...ch.members] }));
+				}
+				return;
+			}
+			default:
+				console.error("usage: host channel <new|add|remove|list>");
+				process.exit(1);
+		}
 	},
 
 	job: async (args) => {
@@ -213,6 +256,8 @@ async function main(): Promise<void> {
 			error: { type: "string" },
 			status: { type: "string" },
 			"job-ttl": { type: "string" },
+			member: { type: "string" },
+			as: { type: "string" },
 		},
 		allowPositionals: true,
 		strict: false,

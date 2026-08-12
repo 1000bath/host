@@ -31,6 +31,8 @@ export interface HostReadOptions {
 	topic?: string;
 	/** Only messages with id strictly after this cursor. */
 	after?: string;
+	/** Viewer identity: hides messages on channels the viewer is not a member of. */
+	as?: string;
 }
 
 export interface HostSendInput extends HostSendOptions {
@@ -92,12 +94,21 @@ function matchesRead(message: HostMessage, opts: HostReadOptions): boolean {
 	return true;
 }
 
+/** A restricted channel: a topic that only its members may send to or read. */
+export interface Channel {
+	topic: string;
+	owner: string;
+	members: Set<string>;
+}
+
 /** Central relay. Agents register, send, broadcast, read, and stream messages. */
 export class Host {
 	protected readonly mailboxes = new Map<string, Mailbox>();
 	protected readonly all: HostMessage[] = [];
 	private readonly subscribers = new Set<(message: HostMessage) => void>();
 	protected nextId = 0;
+	/** Restricted topics -> who may access them. Unmanaged topics are open to all. */
+	protected readonly channels = new Map<string, Channel>();
 
 	/**
 	 * Register an agent and return its mailbox. Idempotent: re-registering a
@@ -121,10 +132,60 @@ export class Host {
 		return [...this.mailboxes.keys()];
 	}
 
+	/**
+	 * Restrict a topic into a channel. Only `owner` (the creator) may manage it.
+	 * Once managed, only members can send to / read from that topic.
+	 * Re-invoking re-lists the channel and returns it.
+	 */
+	manageChannel(topic: string, owner: string): Channel {
+		const existing = this.channels.get(topic);
+		if (existing) return existing;
+		const channel: Channel = { topic, owner, members: new Set([owner]) };
+		this.channels.set(topic, channel);
+		return channel;
+	}
+
+	/** Add an agent to a channel. Only the channel owner may do this. */
+	addChannelMember(topic: string, by: string, agent: string): Channel {
+		const channel = this.requireChannel(topic);
+		if (channel.owner !== by) throw new Error(`channel ${topic}: only ${channel.owner} may manage it`);
+		channel.members.add(agent);
+		return channel;
+	}
+
+	/** Remove an agent from a channel. Only the channel owner may do this. */
+	removeChannelMember(topic: string, by: string, agent: string): Channel {
+		const channel = this.requireChannel(topic);
+		if (channel.owner !== by) throw new Error(`channel ${topic}: only ${channel.owner} may manage it`);
+		channel.members.delete(agent);
+		return channel;
+	}
+
+	/** All managed channels. */
+	listChannels(): Channel[] {
+		return [...this.channels.values()];
+	}
+
+	/** Is `agent` allowed to access `topic` (open topic, or member of its channel)? */
+	canAccess(topic: string | undefined, agent: string): boolean {
+		if (topic === undefined) return true;
+		const channel = this.channels.get(topic);
+		return channel === undefined || channel.members.has(agent);
+	}
+
+	private requireChannel(topic: string): Channel {
+		const channel = this.channels.get(topic);
+		if (!channel) throw new Error(`channel ${topic}: not managed`);
+		return channel;
+	}
+
 	/** Send a message. `to` omitted = broadcast to all except the sender. */
 	send(input: HostSendInput): HostMessage {
 		const { from, to, content } = input;
 		if (from.trim() === "") throw new Error("send: from required");
+		if (!this.canAccess(input.topic, from)) {
+			throw new Error(`send: ${from} is not a member of channel "${input.topic}"`);
+		}
 		if (to !== undefined) {
 			if (!this.mailboxes.has(to)) {
 				throw new Error(`send: agent "${to}" is not registered`);
@@ -144,7 +205,10 @@ export class Host {
 			this.mailboxes.get(to)!._push(message);
 		} else {
 			for (const [name, mailbox] of this.mailboxes) {
-				if (name !== from) mailbox._push(message);
+				if (name === from) continue;
+				// broadcast on a restricted channel only reaches its members
+				if (!this.canAccess(input.topic, name)) continue;
+				mailbox._push(message);
 			}
 		}
 
@@ -154,12 +218,23 @@ export class Host {
 
 	/** Read (and drain) one agent's pending messages. */
 	read(name: string, opts: HostReadOptions = {}): HostMessage[] {
+		if (!this.canAccess(opts.topic, name)) {
+			throw new Error(`read: ${name} is not a member of channel "${opts.topic}"`);
+		}
 		return this.mailboxes.get(name)?._drain(opts) ?? [];
 	}
 
-	/** Global read-only message log. */
+	/**
+	 * Global read-only message log.
+	 * Set `as` to the viewer's agent name to hide messages on channels the
+	 * viewer is not a member of. Without `as`, everything is visible (admin view).
+	 */
 	log(opts: HostReadOptions = {}): HostMessage[] {
-		return this.all.filter((message) => matchesRead(message, opts));
+		return this.all.filter((message) => {
+			if (!matchesRead(message, opts)) return false;
+			if (opts.as !== undefined && !this.canAccess(message.topic, opts.as)) return false;
+			return true;
+		});
 	}
 
 	/** Subscribe to every relayed message (used by the SSE stream). */

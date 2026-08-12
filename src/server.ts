@@ -4,7 +4,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { Host, type HostMessage, type HostReadOptions, type HostSendInput } from "./host.js";
+import { Host, type Channel, type HostMessage, type HostReadOptions, type HostSendInput } from "./host.js";
 import { JobRegistry, type JobStatus } from "./job.js";
 import { PersistentHost } from "./persist.js";
 
@@ -55,6 +55,14 @@ function readQuery(url: URL): HostReadOptions {
 /** Route a message from an SSE stream to a connected agent. Matches mailbox delivery semantics. */
 function isForAgent(message: HostMessage, name: string): boolean {
 	return message.to === name || (message.to === undefined && message.from !== name);
+}
+
+function channelToJson(channel: Channel) {
+	return {
+		topic: channel.topic,
+		owner: channel.owner,
+		members: [...channel.members],
+	};
 }
 
 function readJobQuery(url: URL) {
@@ -111,7 +119,46 @@ function handle(req: IncomingMessage, res: ServerResponse, host: Host, jobs: Job
 			}
 
 			if (req.method === "GET" && path === "/log") {
-				json(res, 200, { messages: host.log(readQuery(url)) });
+				json(res, 200, { messages: host.log({ ...readQuery(url), as: url.searchParams.get("as") ?? undefined }) });
+				return;
+			}
+
+			// ---- channels (topic isolation) ----
+			if (req.method === "POST" && path === "/channels") {
+				const body = (await readJson(req)) as { topic?: string; owner?: string };
+				if (!body?.topic) throw new Error("channels: topic required");
+				json(res, 200, channelToJson(host.manageChannel(body.topic, body.owner ?? "unknown")));
+				return;
+			}
+
+			const channelMatch = path.match(/^\/channels\/([^/]+)(?:\/members(?:\/([^/]+))?)?$/);
+			if (channelMatch) {
+				const topic = decodeURIComponent(channelMatch[1]);
+				const member = channelMatch[2] ? decodeURIComponent(channelMatch[2]) : undefined;
+				if (req.method === "GET") {
+					const channel = host
+						.listChannels()
+						.find((c) => c.topic === topic);
+					if (!channel) throw new Error(`channel ${topic}: not managed`);
+					json(res, 200, channelToJson(channel));
+					return;
+				}
+				if (member && req.method === "POST") {
+					const body = (await readJson(req)) as { by?: string };
+					if (!body?.by) throw new Error("channels: by required");
+					json(res, 200, channelToJson(host.addChannelMember(topic, body.by, member)));
+					return;
+				}
+				if (member && req.method === "DELETE") {
+					const by = url.searchParams.get("by");
+					if (!by) throw new Error("channels: ?by= required");
+					json(res, 200, channelToJson(host.removeChannelMember(topic, by, member)));
+					return;
+				}
+			}
+
+			if (req.method === "GET" && path === "/channels") {
+				json(res, 200, { channels: host.listChannels().map(channelToJson) });
 				return;
 			}
 

@@ -5,7 +5,7 @@
  * agent runtime (opencode, claude code, aider, codex, ...).
  */
 
-import type { HostMessage, HostReadOptions, HostSendOptions } from "./host.js";
+import type { Channel, HostMessage, HostReadOptions, HostSendOptions } from "./host.js";
 import type { Job, JobStatus } from "./job.js";
 
 export interface HostClientOptions {
@@ -59,9 +59,38 @@ export class HostClient {
 		);
 	}
 
-	/** Global read-only log. */
+	/** Global read-only log. Pass `as` to hide channels you're not a member of. */
 	log(opts?: HostReadOptions): Promise<HostMessage[]> {
 		return this.get("/log", opts).then((body) => body.messages as HostMessage[]);
+	}
+
+	// ---- channels (topic isolation) ----
+
+	/** Restrict a topic into a channel owned by this client. */
+	manageChannel(topic: string): Promise<Channel> {
+		return this.post("/channels", { topic, owner: this.name });
+	}
+
+	/** Add an agent to a channel (only the channel owner may do this). */
+	addChannelMember(topic: string, agent: string): Promise<Channel> {
+		return this.post(`/channels/${encodeURIComponent(topic)}/members/${encodeURIComponent(agent)}`, {
+			by: this.name,
+		});
+	}
+
+	/** Remove an agent from a channel (only the channel owner may do this). */
+	removeChannelMember(topic: string, agent: string): Promise<Channel> {
+		return fetch(
+			`${this.baseUrl}/channels/${encodeURIComponent(topic)}/members/${encodeURIComponent(agent)}?by=${encodeURIComponent(this.name)}`,
+			{ method: "DELETE" },
+		)
+			.then(check)
+			.then((body) => body as Channel);
+	}
+
+	/** List all managed channels. */
+	listChannels(): Promise<Channel[]> {
+		return this.get("/channels").then((body) => body.channels as Channel[]);
 	}
 
 	// ---- jobs (status state machine) ----
@@ -143,13 +172,14 @@ export class HostClient {
 
 	private get<T = any>(
 		path: string,
-		query?: { topic?: string; after?: string; status?: string; assignee?: string },
+		query?: { topic?: string; after?: string; status?: string; assignee?: string; as?: string },
 	): Promise<T> {
 		const qs = new URLSearchParams();
 		if (query?.topic) qs.set("topic", query.topic);
 		if (query?.after) qs.set("after", query.after);
 		if (query?.status) qs.set("status", query.status);
 		if (query?.assignee) qs.set("assignee", query.assignee);
+		if (query?.as) qs.set("as", query.as);
 		const full = `${this.baseUrl}${path}${qs.size > 0 ? `?${qs}` : ""}`;
 		return fetch(full).then(check).then((body) => body as T);
 	}
