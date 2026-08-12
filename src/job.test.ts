@@ -69,6 +69,38 @@ describe("JobRegistry state machine", () => {
 		expect(reg.claim(job.id, "claude").assignee).toBe("claude");
 	});
 
+	it("reopenStale releases claimed jobs past the claim TTL", () => {
+		let now = 1000;
+		const reg = new JobRegistry({ claimTtl: 500, now: () => now });
+		const job = reg.create({ title: "t" }, "clew");
+		reg.claim(job.id, "codex"); // claimedAt = 1000
+
+		// not stale yet (1000 + 300 < cutoff 1500)
+		now = 1300;
+		expect(reg.reopenStale()).toHaveLength(0);
+		expect(reg.get(job.id)?.status).toBe("claimed");
+
+		// now stale (1000 + 600 > cutoff 1500)
+		now = 1600;
+		const reopened = reg.reopenStale();
+		expect(reopened).toHaveLength(1);
+		const again = reg.get(job.id);
+		expect(again?.status).toBe("open");
+		expect(again?.assignee).toBeUndefined();
+		expect(again?.error).toMatch(/timed out/);
+
+		// another worker can pick it up
+		expect(reg.claim(job.id, "claude").assignee).toBe("claude");
+	});
+
+	it("reopenStale is a no-op when no TTL is set", () => {
+		const reg = new JobRegistry();
+		const job = reg.create({ title: "t" }, "clew");
+		reg.claim(job.id, "codex");
+		expect(reg.reopenStale()).toHaveLength(0);
+		expect(reg.get(job.id)?.status).toBe("claimed");
+	});
+
 	it("lists jobs filtered by status / assignee / topic", () => {
 		const reg = new JobRegistry();
 		const a = reg.create({ title: "a", topic: "auth" }, "clew");

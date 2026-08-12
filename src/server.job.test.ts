@@ -75,6 +75,31 @@ describe("host job API over HTTP", () => {
 		expect((await claude.claimJob(job.id)).assignee).toBe("claude");
 	});
 
+	it("server with jobTtlMs reopens a stale claimed job for another worker", async () => {
+		const s = await startHostServer({ port: 0, jobTtlMs: 60_000 }); // TTL set, ticker slow
+		servers.push(s);
+		server = s;
+		const url = `http://127.0.0.1:${server.port}`;
+		const clew = new HostClient({ baseUrl: url, name: "clew" });
+		const codex = new HostClient({ baseUrl: url, name: "codex" });
+		const claude = new HostClient({ baseUrl: url, name: "claude" });
+
+		const job = await clew.createJob({ title: "t" });
+		await codex.claimJob(job.id);
+		expect(server.jobs.list({ status: "claimed" })).toHaveLength(1);
+
+		// simulate the sweep finding it stale by nudging claimedAt back
+		const claimed = server.jobs.get(job.id)!;
+		(claimed as { claimedAt: number }).claimedAt = Date.now() - 120_000;
+
+		// manual sweep (what the ticker would call)
+		server.jobs.reopenStale();
+		expect(server.jobs.get(job.id)?.status).toBe("open");
+
+		// another worker can now claim it
+		expect((await claude.claimJob(job.id)).assignee).toBe("claude");
+	});
+
 	it("errors surface as non-2xx with JSON body", async () => {
 		await start();
 		const url = `http://127.0.0.1:${server.port}`;

@@ -16,6 +16,11 @@ export interface HostServerOptions {
 	hostname?: string;
 	/** SQLite file path for durable storage. Omit for in-memory. */
 	dbPath?: string;
+	/**
+	 * Auto-reassign: a job claimed this many ms with no done/fail is reopened
+	 * for another worker. Swept periodically. Omit to disable.
+	 */
+	jobTtlMs?: number;
 }
 
 export interface HostServer {
@@ -205,12 +210,36 @@ function stream(url: URL, req: IncomingMessage, res: ServerResponse, host: Host)
 }
 
 export async function startHostServer(options: HostServerOptions = {}): Promise<HostServer> {
-	const host = options.host ?? (options.dbPath ? new PersistentHost(options.dbPath) : new Host());
+	const host = options.host ?? (options.dbPath ? new PersistentHost(options.dbPath, options) : new Host());
 	const jobs =
 		options.jobs ??
-		(host instanceof PersistentHost ? host.jobs : new JobRegistry());
+		(host instanceof PersistentHost ? host.jobs : new JobRegistry({ claimTtl: options.jobTtlMs }));
 	const port = options.port ?? 4777;
 	const hostname = options.hostname ?? "127.0.0.1";
+
+	// Auto-reassign sweep: release claimed jobs past their TTL.
+	// We notify the abandoned worker before reopenStale() clears assignee.
+	let sweepTimer: NodeJS.Timeout | undefined;
+	if (options.jobTtlMs) {
+		sweepTimer = setInterval(() => {
+			const now = Date.now();
+			for (const job of jobs.list({ status: "claimed" })) {
+				if (job.claimedAt && now - job.claimedAt > options.jobTtlMs! && job.assignee) {
+					try {
+						host.send({
+							from: "host",
+							to: job.assignee,
+							content: { notice: "job timed out; reassigned", jobId: job.id },
+							topic: "ops",
+						});
+					} catch {
+						// worker may have unregistered; ignore the notify
+					}
+				}
+			}
+			jobs.reopenStale();
+		}, Math.min(options.jobTtlMs / 2, 30_000));
+	}
 
 	const server = createServer((req, res) => handle(req, res, host, jobs));
 
@@ -229,6 +258,9 @@ export async function startHostServer(options: HostServerOptions = {}): Promise<
 		jobs,
 		port: actualPort,
 		promise: new Promise<void>((resolve) => server.on("close", resolve)),
-		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+		close: () => {
+			if (sweepTimer) clearInterval(sweepTimer);
+			return new Promise<void>((resolve) => server.close(() => resolve()));
+		},
 	};
 }

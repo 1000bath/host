@@ -52,10 +52,27 @@ function assertTransition(from: JobStatus, to: JobStatus): void {
 	}
 }
 
-/** In-memory job registry. Swap for a durable store behind the same API later. */
+/**
+ * In-memory job registry. Swap for a durable store behind the same API later.
+ *
+ * `now` is injectable so TTL/auto-reassign logic can be tested without real
+ * time; it defaults to the system clock.
+ */
 export class JobRegistry {
 	protected readonly jobs = new Map<string, Job>();
 	protected nextId = 0;
+	/**
+	 * Milliseconds a job may sit `claimed` before being auto-reopened. A job
+	 * claimed longer than this with no done/fail is considered abandoned and
+	 * released for another worker (see `reopenStale()`). `0`/`undefined` disables.
+	 */
+	claimTtl?: number;
+	private readonly now: () => number;
+
+	constructor(options: { claimTtl?: number; now?: () => number } = {}) {
+		this.claimTtl = options.claimTtl;
+		this.now = options.now ?? Date.now;
+	}
 
 	/** Create a job in the `open` state. */
 	create(input: JobCreateInput, createdBy: string): Job {
@@ -68,7 +85,7 @@ export class JobRegistry {
 			status: "open",
 			...(input.assignedTo !== undefined ? { assignee: input.assignedTo } : {}),
 			createdBy,
-			createdAt: Date.now(),
+			createdAt: this.now(),
 		};
 		this.jobs.set(job.id, job);
 		return job;
@@ -84,8 +101,32 @@ export class JobRegistry {
 		}
 		job.status = "claimed";
 		job.assignee = assignee;
-		job.claimedAt = Date.now();
+		job.claimedAt = this.now();
 		return job;
+	}
+
+	/**
+	 * Reopen any `claimed` job whose claim has exceeded `claimTtl`, so an
+	 * abandoned job comes back to `open` for another worker.
+	 *
+	 * Self-healing: call it periodically (e.g. the host's sweep ticker) or just
+	 * before a claim. Returns the jobs that were reopened. No-op when TTL is off.
+	 */
+	reopenStale(): Job[] {
+		if (!this.claimTtl || this.claimTtl <= 0) return [];
+		const cutoff = this.now() - this.claimTtl;
+		const reopened: Job[] = [];
+		for (const job of this.jobs.values()) {
+			if (job.status !== "claimed") continue;
+			const claimedAt = job.claimedAt;
+			if (claimedAt === undefined || claimedAt > cutoff) continue;
+			job.status = "open";
+			job.assignee = undefined;
+			job.claimedAt = undefined;
+			job.error = "claim timed out (auto-reassigned)";
+			reopened.push(job);
+		}
+		return reopened;
 	}
 
 	/** Mark a claimed job done. Only the claimant may do this. */
@@ -94,7 +135,7 @@ export class JobRegistry {
 		assertTransition(job.status, "done");
 		if (job.assignee !== by) throw new Error(`job ${id}: only ${job.assignee} may complete`);
 		job.status = "done";
-		job.completedAt = Date.now();
+		job.completedAt = this.now();
 		if (result !== undefined) job.result = result;
 		return job;
 	}

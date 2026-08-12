@@ -155,6 +155,7 @@ Only the claimant may mark done/fail; a job reserved with `assignedTo` may
 only be claimed by that agent.
 
 ```bash
+host serve --job-ttl 30000                  # auto-reassign jobs stuck claimed >30s
 host job new --title "Implement PKCE" --desc "S256" --topic auth --assignee codex
 host job list                      # all jobs (JSON lines)
 host job list --status open        # only open ones
@@ -162,6 +163,12 @@ host job claim --id 1 --name codex
 host job done --id 1 --name codex --result '{"outline":"..."}'   # only codex
 host job fail --id 1 --name codex --error "crash"                # back to open
 ```
+
+`host serve --job-ttl <ms>` enables **auto-reassign**: a job left `claimed`
+longer than the TTL (worker crashed or never finished) is swept back to `open`
+so another agent can pick it up. The abandoned worker gets an `ops` message
+(`job timed out; reassigned`). The sweep runs roughly every `TTL/2`.
+Disabled by default.
 
 Programmatically: `client.createJob / listJobs / getJob / claimJob /
 completeJob / failJob`. Via MCP: `job_create`, `job_list`, `job_claim`,

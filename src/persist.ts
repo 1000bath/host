@@ -258,17 +258,24 @@ export class PersistentJobRegistry extends JobRegistry {
 		this.store.saveJob(job);
 		return job;
 	}
+
+	override reopenStale(): Job[] {
+		const reopened = super.reopenStale();
+		for (const job of reopened) this.store.saveJob(job);
+		return reopened;
+	}
 }
 
 export class PersistentHost extends Host {
 	private readonly store: SqliteStore;
 	readonly jobs: PersistentJobRegistry;
 
-	constructor(dbPath: string) {
+	constructor(dbPath: string, options: { jobTtlMs?: number } = {}) {
 		super();
 		this.store = new SqliteStore(dbPath);
 		this.load();
 		this.jobs = new PersistentJobRegistry(this.store);
+		if (options.jobTtlMs) this.jobs.claimTtl = options.jobTtlMs;
 	}
 
 	private load(): void {

@@ -76,6 +76,7 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 			port,
 			hostname: args.values.hostname ?? "0.0.0.0",
 			dbPath: args.values.db,
+			jobTtlMs: args.values["job-ttl"] !== undefined ? Number(args.values["job-ttl"]) : undefined,
 		});
 		console.log(`host listening on http://${args.values.hostname ?? "0.0.0.0"}:${server.port}`);
 		// keep running; Ctrl-C to stop
@@ -211,6 +212,7 @@ async function main(): Promise<void> {
 			result: { type: "string" },
 			error: { type: "string" },
 			status: { type: "string" },
+			"job-ttl": { type: "string" },
 		},
 		allowPositionals: true,
 		strict: false,
