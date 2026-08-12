@@ -37,6 +37,9 @@ host broadcast --from codex --content "done" --topic prod-deploy
 # group messages: same topic = same channel
 host send --from opencode --to codex --content hi --topic sprint-7
 
+# long or tricky content (backticks, quotes, $vars): read it from a file
+host send --from codex --to opencode --content-file brief.json --topic ops
+
 # shared state: the whole conversation, read-only
 host log --after 3
 
@@ -46,6 +49,9 @@ host watch --name codex
 
 `--port` / `--url` override the default `http://127.0.0.1:4777`. Message content
 is parsed as JSON when it is `{...}` or `[...]`, otherwise kept as a string.
+Pass `--content-file <path>` instead of `--content` to send the file's contents
+verbatim — no shell quoting/escaping, so messages survive backticks, quotes,
+and `$` untouched (handy when a coding agent constructs the message).
 
 ## From code
 

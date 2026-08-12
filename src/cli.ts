@@ -6,6 +6,7 @@
  *   host serve              start the relay (default port 4777)
  *   host register --name A
  *   host send --from A --to B --content "..." [--topic t]
+ *   host send --from A --to B --content-file brief.json   (or any file path)
  *   host broadcast --from A --content "..."
  *   host inbox --name A [--after id] [--topic t]
  *   host log [--after id]
@@ -13,6 +14,7 @@
  *   host agents
  */
 
+import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { HostClient } from "./client.js";
@@ -34,6 +36,16 @@ function contentOf(raw: string): unknown {
 		}
 	}
 	return raw;
+}
+
+/** Content from --content-file (file path), falling back to --content. */
+async function resolveContent(args: any): Promise<unknown> {
+	const filePath = args.values["content-file"];
+	if (filePath !== undefined) {
+		const text = await readFile(filePath, "utf8");
+		return contentOf(text);
+	}
+	return contentOf(args.values.content ?? "");
 }
 
 function client(args: any): HostClient {
@@ -80,7 +92,7 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 
 	send: async (args) => {
 		const c = client(args);
-		const message = await c.send(opt(args.values.to, ""), contentOf(opt(args.values.content, "")), {
+		const message = await c.send(opt(args.values.to, ""), await resolveContent(args), {
 			topic: args.values.topic,
 		});
 		console.log(JSON.stringify(message));
@@ -88,7 +100,7 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 
 	broadcast: async (args) => {
 		const c = client(args);
-		const message = await c.broadcast(contentOf(opt(args.values.content, "")), {
+		const message = await c.broadcast(await resolveContent(args), {
 			topic: args.values.topic,
 		});
 		console.log(JSON.stringify(message));
@@ -128,6 +140,7 @@ async function main(): Promise<void> {
 			url: { type: "string" },
 			hostname: { type: "string" },
 			db: { type: "string" },
+			"content-file": { type: "string" },
 		},
 		allowPositionals: true,
 		strict: false,
