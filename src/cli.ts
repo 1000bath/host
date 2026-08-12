@@ -191,12 +191,17 @@ const commands: Record<string, (args: any) => Promise<void>> = {
 		const c = client(args);
 		switch (sub) {
 			case "new": {
+				// --steps "Build|Test@codex|Deploy@claude" — title or title@assignee
 				const steps = (opt(args.values.steps, ""))
 					.split("|")
 					.map((s) => s.trim())
 					.filter((s) => s.length > 0)
-					.map((title) => ({ title }));
-				if (steps.length === 0) throw new Error("workflow: --steps 'A|B|C' required");
+					.map((part) => {
+						const at = part.lastIndexOf("@");
+						if (at <= 0) return { title: part };
+						return { title: part.slice(0, at), assignedTo: part.slice(at + 1) };
+					});
+				if (steps.length === 0) throw new Error("workflow: --steps 'A|B@x' required");
 				const wf = await c.createWorkflow({ title: opt(args.values.title, "workflow"), steps });
 				console.log(JSON.stringify(wf));
 				return;

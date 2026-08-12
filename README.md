@@ -195,18 +195,21 @@ pipeline in order, and completing a step automatically releases the next.
 
 ```bash
 host workflow new --title "Ship PKCE" --steps "Implement|Test|Deploy"
+host workflow new --title "Ship" --steps "Build|Test@codex|Deploy@claude"   # per-step assignee
 host workflow list
 host workflow get --id 1
 ```
 
 Only step 1 is open at creation; when its job is claimed + done, step 2's job
-auto-appears, and so on. Each step can reserve an assignee (`assignedTo`), so
-different agents hand work to each other in sequence.
+auto-appears, and so on. Each step can reserve an assignee (in CLI use
+`Title@agent` per step, or `assignedTo` via HTTP/MCP), so different agents
+hand work to each other in sequence.
 
 Programmatically: `client.createWorkflow / listWorkflows / getWorkflow`.
 Via MCP: `workflow_create`, `workflow_list`, `workflow_get`. HTTP:
 `POST /workflows`, `GET /workflows`, `GET /workflows/:id`. Workflow steps are
-plain jobs, so TTL auto-reassign and channels apply to them too.
+plain jobs, so TTL auto-reassign and channels apply to them too. With `--db`,
+workflows (step progress + assignees) persist like jobs and survive restarts.
 
 ## Channels (topic isolation)
 

@@ -10,7 +10,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { Host, type Channel, type HostMessage, type HostReadOptions, type HostSendInput, Mailbox } from "./host.js";
 import { JobRegistry, type Job } from "./job.js";
-import { WorkflowRegistry } from "./workflow.js";
+import { WorkflowRegistry, type Workflow } from "./workflow.js";
 
 interface MessageRow {
 	id: number;
@@ -80,6 +80,12 @@ export class SqliteStore {
 				owner TEXT NOT NULL,
 				members TEXT NOT NULL
 			);
+			CREATE TABLE IF NOT EXISTS workflows (
+				id INTEGER PRIMARY KEY,
+				title TEXT NOT NULL,
+				status TEXT NOT NULL,
+				data TEXT NOT NULL
+			);
 		`);
 	}
 
@@ -103,6 +109,23 @@ export class SqliteStore {
 			owner: row.owner,
 			members: new Set(JSON.parse(row.members) as string[]),
 		}));
+	}
+
+	// ---- workflows ----
+
+	/** Upsert a workflow. Steps (with jobId/status/assignee) are stored as JSON data. */
+	saveWorkflow(workflow: Workflow): void {
+		this.db
+			.prepare("INSERT INTO workflows (id, title, status, data) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, status = excluded.status, data = excluded.data")
+			.run(Number(workflow.id), workflow.title, workflow.status, JSON.stringify(workflow));
+	}
+
+	loadWorkflows(): Workflow[] {
+		const rows = this.db.prepare("SELECT title, data FROM workflows ORDER BY id").all() as unknown as Array<{
+			title: string;
+			data: string;
+		}>;
+		return rows.map((row) => JSON.parse(row.data) as Workflow);
 	}
 
 	// ---- jobs ----
@@ -257,14 +280,14 @@ export class SqliteStore {
  * agents, the message log, and undelivered mailbox queues.
  */
 /**
- * JobRegistry (workflow-capable) mirrored to SQLite — jobs survive restarts
- * alongside messages. Workflows themselves are in-memory; their released step
- * jobs persist through the standard job overrides below.
+ * JobRegistry (workflow-capable) mirrored to SQLite — jobs and workflows
+ * survive restarts alongside messages.
  */
 export class PersistentJobRegistry extends WorkflowRegistry {
 	constructor(private readonly store: SqliteStore) {
 		super();
 		for (const job of store.loadJobs()) this.seed(job);
+		for (const wf of store.loadWorkflows()) this.restoreWorkflow(wf);
 	}
 
 	override create(input: Parameters<JobRegistry["create"]>[0], createdBy: string): Job {
@@ -295,6 +318,10 @@ export class PersistentJobRegistry extends WorkflowRegistry {
 		const reopened = super.reopenStale();
 		for (const job of reopened) this.store.saveJob(job);
 		return reopened;
+	}
+
+	protected override persistWorkflow(workflow: Workflow): void {
+		this.store.saveWorkflow(workflow);
 	}
 }
 

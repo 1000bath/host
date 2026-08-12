@@ -19,10 +19,20 @@ interface WorkflowStep {
 	assignedTo?: string;
 }
 
+export interface WorkflowStepState {
+	step: number;
+	title: string;
+	description?: string;
+	topic?: string;
+	assignedTo?: string;
+	jobId?: string;
+	status: "open" | "claimed" | "done" | "failed";
+}
+
 export interface Workflow {
 	id: string;
 	title: string;
-	steps: Array<{ step: number; title: string; jobId?: string; status: "open" | "claimed" | "done" | "failed" }>;
+	steps: WorkflowStepState[];
 	status: "active" | "done" | "failed";
 	createdBy: string;
 	createdAt: number;
@@ -41,22 +51,30 @@ export class WorkflowRegistry extends JobRegistry {
 
 	/** Create a workflow and release step 1. Returns the workflow. */
 	createWorkflow(input: { title: string; steps: WorkflowStep[] }, createdBy: string): Workflow {
+		if (input.title.trim() === "") throw new Error("workflow: title required");
 		if (input.steps.length === 0) throw new Error("workflow: at least one step required");
+		if (input.steps.some((step) => step.title.trim() === "")) {
+			throw new Error("workflow: every step requires a title");
+		}
 		const id = String(++this.nextId);
 		const wf: Workflow = {
 			id,
 			title: input.title,
-			steps: input.steps.map((_, i) => ({ step: i + 1, title: "", status: "open" })),
+			steps: input.steps.map((s, i) => ({
+				step: i + 1,
+				title: s.title,
+				...(s.description !== undefined ? { description: s.description } : {}),
+				...(s.topic !== undefined ? { topic: s.topic } : {}),
+				...(s.assignedTo !== undefined ? { assignedTo: s.assignedTo } : {}),
+				status: "open",
+			})),
 			status: "active",
 			createdBy,
 			createdAt: this.now(),
 		};
-		// fill step titles
-		for (let i = 0; i < input.steps.length; i++) {
-			wf.steps[i].title = input.steps[i].title;
-		}
 		this.workflows.set(id, { wf, stepIndex: 0 });
-		this.releaseStep(id, 0, input.steps[0]);
+		this.releaseStep(id, 0, wf.steps[0]);
+		this.persistWorkflow(wf);
 		return wf;
 	}
 
@@ -68,6 +86,29 @@ export class WorkflowRegistry extends JobRegistry {
 		return [...this.workflows.values()].map((e) => e.wf);
 	}
 
+	/**
+	 * Persistence hook: called after a workflow is created or advances.
+	 * In-memory WorkflowRegistry does nothing; a persistent subclass writes to storage.
+	 */
+	protected persistWorkflow(_wf: Workflow): void {}
+
+	/**
+	 * @internal Restore a workflow into memory without persisting (used on load).
+	 * The current step's job id is wired into the active-job map so completing
+	 * it advances the pipeline.
+	 */
+	restoreWorkflow(wf: Workflow): void {
+		const stepIndex = Math.max(
+			0,
+			wf.steps.findIndex((s) => s.status !== "done"),
+		);
+		this.workflows.set(wf.id, { wf, stepIndex });
+		const current = wf.steps[stepIndex];
+		if (current?.jobId && wf.status === "active") {
+			this.activeJobToWf.set(current.jobId, wf.id);
+		}
+	}
+
 	override done(id: string, by: string, result?: unknown): Job {
 		const job = super.done(id, by, result);
 		// completing a workflow step may release the next one
@@ -76,7 +117,7 @@ export class WorkflowRegistry extends JobRegistry {
 		return job;
 	}
 
-	private releaseStep(wfId: string, index: number, step: WorkflowStep): void {
+	private releaseStep(wfId: string, index: number, step: WorkflowStepState): void {
 		const entry = this.workflows.get(wfId)!;
 		const wf = entry.wf;
 		const jobInput: JobCreateInput = {
@@ -85,7 +126,9 @@ export class WorkflowRegistry extends JobRegistry {
 			...(step.topic !== undefined ? { topic: step.topic } : {}),
 			...(step.assignedTo !== undefined ? { assignedTo: step.assignedTo } : {}),
 		};
-		const job = super.create(jobInput, wf.createdBy);
+		// use `this.create` so a persistent subclass's override also records the job
+		const job = this.create(jobInput, wf.createdBy);
+		wf.steps[index].status = "open";
 		wf.steps[index].jobId = job.id;
 		this.activeJobToWf.set(job.id, wfId);
 	}
@@ -106,13 +149,12 @@ export class WorkflowRegistry extends JobRegistry {
 		// release next step, or finish
 		const nextIndex = doneIndex + 1;
 		if (nextIndex < wf.steps.length) {
-			wf.steps[nextIndex].status = "open";
-			const nextSpec = { title: wf.steps[nextIndex].title };
-			this.releaseStep(wfId, nextIndex, nextSpec);
+			this.releaseStep(wfId, nextIndex, wf.steps[nextIndex]);
 		} else {
 			wf.status = "done";
 			wf.completedAt = this.now();
 		}
+		this.persistWorkflow(wf);
 	}
 }
 
