@@ -2,3 +2,12 @@ node_modules/
 dist/
 *.tsbuildinfo
 .env
+
+# Spider local/generated artifacts
+.env
+*.log
+coverage/
+.DS_Store
+Thumbs.db
+# Local CodeGraph index (regenerable, machine-specific)
+.codegraph/
