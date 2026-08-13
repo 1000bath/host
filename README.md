@@ -13,9 +13,9 @@ Zero runtime dependencies — Node 24 built-ins only (`node:http`, global
 ## Install
 
 ```bash
-npm install -g host          # global CLI everywhere (recommended)
+npm install -g hostbed          # global CLI everywhere (recommended)
 # or local
-npm install host
+npm install hostbed
 ```
 
 Requires **Node 24+**.
@@ -23,7 +23,7 @@ Requires **Node 24+**.
 ## Setup: start the host
 
 ```bash
-host serve --db host.db --hostname 0.0.0.0
+hostbed serve --db host.db --hostname 0.0.0.0
 # durable SQLite storage, reachable from other machines on the LAN
 ```
 
@@ -45,27 +45,27 @@ same URL.
 ### Option A — shell / CLI (any agent with a bash tool)
 
 ```bash
-host register --name opencode
-host register --name codex
+hostbed register --name opencode
+hostbed register --name codex
 
 # direct message
-host send --from opencode --to codex --content '{"task":"port the auth module"}'
-host inbox --name codex          # read-and-drain; returns JSON lines
+hostbed send --from opencode --to codex --content '{"task":"port the auth module"}'
+hostbed inbox --name codex          # read-and-drain; returns JSON lines
 
 # to everyone except the sender
-host broadcast --from codex --content "done" --topic prod-deploy
+hostbed broadcast --from codex --content "done" --topic prod-deploy
 
 # group messages: same topic = same channel
-host send --from opencode --to codex --content hi --topic sprint-7
+hostbed send --from opencode --to codex --content hi --topic sprint-7
 
 # long or tricky content (backticks, quotes, $vars): read it from a file
-host send --from codex --to opencode --content-file brief.json --topic ops
+hostbed send --from codex --to opencode --content-file brief.json --topic ops
 
 # shared state: the whole conversation, read-only
-host log --after 3
+hostbed log --after 3
 
 # live tail of one agent's messages
-host watch --name codex
+hostbed watch --name codex
 ```
 
 `--content` is parsed as JSON when it is `{...}` or `[...]`, otherwise kept as
@@ -74,19 +74,19 @@ a string. For anything with tricky quoting use `--content-file <path>`
 
 ### Option B — MCP tools (Claude Code, codex, opencode, ...)
 
-Each agent runs one `host mcp` process under its own identity. The exact
+Each agent runs one `hostbed mcp` process under its own identity. The exact
 wiring depends on the agent:
 
 **Claude Code:**
 
 ```bash
-claude mcp add host -- node /path/to/host/dist/cli.js mcp --name claude --url http://127.0.0.1:4777
+claude mcp add hostbed -- node /path/to/hostbed/dist/cli.js mcp --name claude --url http://127.0.0.1:4777
 ```
 
 **codex (OpenAI):**
 
 ```bash
-codex mcp add host -- node /path/to/host/dist/cli.js mcp --name codex --url http://127.0.0.1:4777
+codex mcp add hostbed -- node /path/to/hostbed/dist/cli.js mcp --name codex --url http://127.0.0.1:4777
 ```
 
 **opencode:**
@@ -97,14 +97,14 @@ codex mcp add host -- node /path/to/host/dist/cli.js mcp --name codex --url http
   "mcp": {
     "host": {
       "type": "local",
-      "command": ["node", "/path/to/host/dist/cli.js", "mcp", "--name", "opencode", "--url", "http://127.0.0.1:4777"]
+      "command": ["node", "/path/to/hostbed/dist/cli.js", "mcp", "--name", "opencode", "--url", "http://127.0.0.1:4777"]
     }
   }
 }
 ```
 
-Every `<path>` above points at the `dist/cli.js` inside the installed `host`
-package (`npm root -g`/`host`). Tools exposed: see [MCP server](#mcp-server).
+Every `<path>` above points at the `dist/cli.js` inside the installed `hostbed`
+package (`npm root -g`/`hostbed`). Tools exposed: see [MCP server](#mcp-server).
 
 ### Option C — from your own code
 
@@ -114,7 +114,7 @@ you write for an agent.
 ## From code
 
 ```typescript
-import { Host } from "host";
+import { Host } from "hostbed";
 
 const host = new Host();
 const alice = host.register("alice");
@@ -132,7 +132,7 @@ const unsubscribe = host.subscribe((m) => console.log(m.content));
 Or over HTTP with the client:
 
 ```typescript
-import { HostClient } from "host";
+import { HostClient } from "hostbed";
 
 const alice = new HostClient({ baseUrl: "http://127.0.0.1:4777", name: "alice" });
 await alice.register();
@@ -144,7 +144,7 @@ const inbox = await alice.inbox(); // drains
 
 ## MCP server
 
-`host mcp --name <identity>` exposes the whole host as MCP tools over stdio,
+`hostbed mcp --name <identity>` exposes the whole host as MCP tools over stdio,
 so an agent treats the relay and job queue as first-class tools — no shell
 escaping, no parsing. Wire it per agent (see [Connect a coding agent](#connect-a-coding-agent)).
 
@@ -194,10 +194,10 @@ step _N_ becomes an open job only after step _N−1_ is done. Agents work the
 pipeline in order, and completing a step automatically releases the next.
 
 ```bash
-host workflow new --title "Ship PKCE" --steps "Implement|Test|Deploy"
-host workflow new --title "Ship" --steps "Build|Test@codex|Deploy@claude"   # per-step assignee
-host workflow list
-host workflow get --id 1
+hostbed workflow new --title "Ship PKCE" --steps "Implement|Test|Deploy"
+hostbed workflow new --title "Ship" --steps "Build|Test@codex|Deploy@claude"   # per-step assignee
+hostbed workflow list
+hostbed workflow get --id 1
 ```
 
 Only step 1 is open at creation; when its job is claimed + done, step 2's job
@@ -217,12 +217,12 @@ By default every topic is open to everyone. A **channel** is a topic that only
 its members may send to or read from — useful for scoping work to teams.
 
 ```bash
-host channel new --topic secret --name alice     # alice owns the channel
-host send --from bob --to alice --content x --topic secret
+hostbed channel new --topic secret --name alice     # alice owns the channel
+hostbed send --from bob --to alice --content x --topic secret
 # → error: bob is not a member of channel "secret"
-host channel add --topic secret --member bob --name alice
-host send --from bob --to alice --content x --topic secret   # now OK
-host channel list
+hostbed channel add --topic secret --member bob --name alice
+hostbed send --from bob --to alice --content x --topic secret   # now OK
+hostbed channel list
 ```
 
 Semantics:
@@ -244,7 +244,7 @@ jobs, so isolation survives restarts.
 
 ## Jobs (status state machine)
 
-`host serve` also manages a shared work queue with an explicit lifecycle the
+`hostbed serve` also manages a shared work queue with an explicit lifecycle the
 host enforces, instead of free-form messages:
 
 ```
@@ -261,16 +261,16 @@ Only the claimant may mark done/fail; a job reserved with `assignedTo` may
 only be claimed by that agent.
 
 ```bash
-host serve --job-ttl 30000                  # auto-reassign jobs stuck claimed >30s
-host job new --title "Implement PKCE" --desc "S256" --topic auth --assignee codex
-host job list                      # all jobs (JSON lines)
-host job list --status open        # only open ones
-host job claim --id 1 --name codex
-host job done --id 1 --name codex --result '{"outline":"..."}'   # only codex
-host job fail --id 1 --name codex --error "crash"                # back to open
+hostbed serve --job-ttl 30000                  # auto-reassign jobs stuck claimed >30s
+hostbed job new --title "Implement PKCE" --desc "S256" --topic auth --assignee codex
+hostbed job list                      # all jobs (JSON lines)
+hostbed job list --status open        # only open ones
+hostbed job claim --id 1 --name codex
+hostbed job done --id 1 --name codex --result '{"outline":"..."}'   # only codex
+hostbed job fail --id 1 --name codex --error "crash"                # back to open
 ```
 
-`host serve --job-ttl <ms>` enables **auto-reassign**: a job left `claimed`
+`hostbed serve --job-ttl <ms>` enables **auto-reassign**: a job left `claimed`
 longer than the TTL (worker crashed or never finished) is swept back to `open`
 so another agent can pick it up. The abandoned worker gets an `ops` message
 (`job timed out; reassigned`). The sweep runs roughly every `TTL/2`.
